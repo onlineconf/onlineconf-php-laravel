@@ -1,0 +1,26 @@
+# Composer
+/vendor/
+composer.lock
+/.composer-cache/
+
+# Tools
+.phpunit.cache/
+.phpunit.result.cache
+.php-cs-fixer.cache
+.phpstan.cache/
+/coverage/
+junit.xml
+
+# IDE / OS
+/.idea/
+/.vscode/
+.DS_Store
+
+# Local task documents (specifications, plans)
+/.tasks/
+
+# Claude: personal settings and runtime directories
+/.claude/
+
+# graphify: local graph artifacts
+/graphify-out/
