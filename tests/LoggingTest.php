@@ -14,9 +14,7 @@ final class LoggingTest extends TestCase
 {
     private function probeHandler(): TestHandler
     {
-        $app = $this->app;
-        assert($app !== null);
-        $logManager = $app->make(LogManager::class);
+        $logManager = $this->application()->make(LogManager::class);
         assert($logManager instanceof LogManager);
         $channel = $logManager->channel('probe');
         assert($channel instanceof IlluminateLogger);
@@ -30,13 +28,11 @@ final class LoggingTest extends TestCase
 
     public function testConfiguredChannelReceivesClientWarnings(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
         $this->config()->set('onlineconf.log_channel', 'probe');
         $this->useModule(['/app/port' => 'snot-a-number']);
 
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
         self::assertSame(1, $module->getInt('/app/port', 1));
 
@@ -45,13 +41,11 @@ final class LoggingTest extends TestCase
 
     public function testDefaultLoggerIsUsedWhenNoChannelIsConfigured(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
         $this->config()->set('logging.default', 'probe');
         $this->useModule(['/app/port' => 'snot-a-number']);
 
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
         self::assertSame(1, $module->getInt('/app/port', 1));
 

@@ -20,44 +20,36 @@ final class ServiceProviderTest extends TestCase
 
     public function testModuleManagerIsASingleton(): void
     {
-        $app = $this->app;
-        assert($app !== null);
-        self::assertSame($app->make(ModuleManager::class), $app->make(ModuleManager::class));
+        self::assertSame($this->application()->make(ModuleManager::class), $this->application()->make(ModuleManager::class));
     }
 
     public function testModuleIsResolvedFromTheConfiguredDirectory(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->useModule(['/app/name' => 'sdemo']);
 
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
 
         self::assertSame('demo', $module->getString('/app/name', ''));
-        self::assertSame($module, $app->make(Module::class), 'the manager keeps one instance per file');
-        $manager = $app->make(ModuleManager::class);
+        self::assertSame($module, $this->application()->make(Module::class), 'the manager keeps one instance per file');
+        $manager = $this->application()->make(ModuleManager::class);
         assert($manager instanceof ModuleManager);
         self::assertSame($module, $manager->module());
     }
 
     public function testConfiguredModuleNameIsUsed(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->useModule(['/app/name' => 'stree']);
         $this->writeModule(['/app/name' => 'sother'], 'other');
         $this->config()->set('onlineconf.module', 'other');
 
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
         self::assertSame('other', $module->getString('/app/name', ''));
     }
 
     public function testConfigWinsOverTheProcessEnvironment(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $envDir = $this->tempDir() . '/env';
         mkdir($envDir);
         Cdb::write($envDir . '/TREE.cdb', ['/app/name' => 'sfrom-env']);
@@ -65,7 +57,7 @@ final class ServiceProviderTest extends TestCase
         putenv('ONLINECONF_DIR=' . $envDir);
 
         try {
-            $module = $app->make(Module::class);
+            $module = $this->application()->make(Module::class);
             assert($module instanceof Module);
             self::assertSame('from-config', $module->getString('/app/name', ''));
         } finally {
@@ -77,13 +69,11 @@ final class ServiceProviderTest extends TestCase
 
     public function testProcessEnvironmentAppliesWhenConfigIsNull(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->writeModule(['/app/name' => 'sfrom-env']);
         putenv('ONLINECONF_DIR=' . $this->tempDir());
 
         try {
-            $module = $app->make(Module::class);
+            $module = $this->application()->make(Module::class);
             assert($module instanceof Module);
             self::assertSame('from-env', $module->getString('/app/name', ''));
         } finally {
@@ -93,15 +83,13 @@ final class ServiceProviderTest extends TestCase
 
     public function testEmptyConfigValuesCountAsUnset(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->writeModule(['/app/name' => 'sfrom-env']);
         $this->config()->set('onlineconf.dir', '');
         $this->config()->set('onlineconf.module', '');
         putenv('ONLINECONF_DIR=' . $this->tempDir());
 
         try {
-            $module = $app->make(Module::class);
+            $module = $this->application()->make(Module::class);
             assert($module instanceof Module);
             self::assertSame('from-env', $module->getString('/app/name', ''));
         } finally {
@@ -111,11 +99,9 @@ final class ServiceProviderTest extends TestCase
 
     public function testCheckIntervalReachesTheModule(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->useModule(['/app/name' => 'sfirst']);
         $this->config()->set('onlineconf.check_interval', 0);
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
         self::assertSame('first', $module->getString('/app/name', ''));
 
@@ -126,11 +112,9 @@ final class ServiceProviderTest extends TestCase
 
     public function testLargeCheckIntervalKeepsTheLoadedData(): void
     {
-        $app = $this->app;
-        assert($app !== null);
         $this->useModule(['/app/name' => 'sfirst']);
         $this->config()->set('onlineconf.check_interval', 3600);
-        $module = $app->make(Module::class);
+        $module = $this->application()->make(Module::class);
         assert($module instanceof Module);
         self::assertSame('first', $module->getString('/app/name', ''));
 

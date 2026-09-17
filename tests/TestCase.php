@@ -49,10 +49,17 @@ abstract class TestCase extends TestbenchTestCase
         rmdir($dir);
     }
 
+    protected function application(): \Illuminate\Foundation\Application
+    {
+        $app = $this->app;
+        assert($app !== null);
+
+        return $app;
+    }
+
     protected function config(): Repository
     {
-        assert($this->app !== null);
-        $config = $this->app->make(Repository::class);
+        $config = $this->application()->make(Repository::class);
         assert($config instanceof Repository);
 
         return $config;
