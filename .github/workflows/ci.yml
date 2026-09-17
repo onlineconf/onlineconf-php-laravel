@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: Laravel ${{ matrix.laravel }} / PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { laravel: '10', testbench: '8', php: '8.1' }
+          - { laravel: '10', testbench: '8', php: '8.2' }
+          - { laravel: '11', testbench: '9', php: '8.2' }
+          - { laravel: '11', testbench: '9', php: '8.3' }
+          - { laravel: '12', testbench: '10', php: '8.3' }
+          - { laravel: '12', testbench: '10', php: '8.4' }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: onlineconf-laravel
+
+      - uses: actions/checkout@v4
+        with:
+          repository: onlineconf/onlineconf-php
+          path: onlineconf-php
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dba, json, posix
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Check the cdb handler
+        run: |
+          php -r 'if (!in_array("cdb", dba_handlers(), true)) { fwrite(STDERR, "ext-dba has no cdb handler\n"); exit(1); }'
+
+      - name: Pin the Laravel version
+        working-directory: onlineconf-laravel
+        run: |
+          composer require "laravel/framework:^${{ matrix.laravel }}.0" "orchestra/testbench:^${{ matrix.testbench }}.0" --no-update --no-interaction
+
+      - name: Install dependencies
+        working-directory: onlineconf-laravel
+        run: composer update --prefer-dist --no-progress --no-interaction
+
+      - name: Coding standard
+        working-directory: onlineconf-laravel
+        run: composer cs
+
+      - name: Static analysis
+        working-directory: onlineconf-laravel
+        run: composer phpstan
+
+      - name: Tests with 100% coverage
+        working-directory: onlineconf-laravel
+        run: composer coverage
