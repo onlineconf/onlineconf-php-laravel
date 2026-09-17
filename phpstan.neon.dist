@@ -1,0 +1,15 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+    - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+
+parameters:
+    level: max
+    # Analyse against the minimum supported version so that results do not depend on the runtime.
+    phpVersion: 80100
+    paths:
+        - src
+        - tests
+        - tools
+        - config
+    treatPhpDocTypesAsCertain: false

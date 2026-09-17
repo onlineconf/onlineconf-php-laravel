@@ -1,0 +1,66 @@
+{
+    "name": "onlineconf/onlineconf-laravel",
+    "description": "Laravel integration for onlineconf-php: service provider, facade, config, test helpers and artisan commands",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["onlineconf", "laravel", "config", "configuration"],
+    "require": {
+        "php": "^8.1",
+        "laravel/framework": "^10.0 || ^11.0 || ^12.0",
+        "onlineconf/onlineconf": "^1.0",
+        "psr/log": "^1.1 || ^2 || ^3"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.65",
+        "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^10.5"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../onlineconf-php",
+            "options": {
+                "symlink": false,
+                "versions": {"onlineconf/onlineconf": "1.0.0"}
+            }
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Onlineconf\\Laravel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Onlineconf\\Laravel\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["Onlineconf\\Laravel\\OnlineconfServiceProvider"],
+            "aliases": {"Onlineconf": "Onlineconf\\Laravel\\Facades\\Onlineconf"}
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "coverage": [
+            "phpunit --coverage-clover=coverage/clover.xml --coverage-text",
+            "@coverage-check"
+        ],
+        "coverage-check": "php tools/coverage-check.php coverage/clover.xml",
+        "phpstan": "phpstan analyse --memory-limit=512M",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "check": ["@cs", "@phpstan", "@coverage"]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": false
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
