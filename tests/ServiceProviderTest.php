@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Facades\Artisan;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\OnlineconfServiceProvider;
 use Onlineconf\Laravel\Tests\Support\Cdb;
@@ -132,5 +133,20 @@ final class ServiceProviderTest extends TestCase
         $this->writeModule(['/app/name' => 'ssecond']);
 
         self::assertSame('first', $module->getString('/app/name', ''));
+    }
+
+    public function testConfigIsPublishable(): void
+    {
+        $target = $this->application()->configPath('onlineconf.php');
+        self::assertFileDoesNotExist($target);
+
+        try {
+            self::assertSame(0, Artisan::call('vendor:publish', ['--tag' => 'onlineconf-config']));
+            self::assertFileEquals(dirname(__DIR__) . '/config/onlineconf.php', $target);
+        } finally {
+            if (is_file($target)) {
+                unlink($target);
+            }
+        }
     }
 }
