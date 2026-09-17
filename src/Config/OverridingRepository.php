@@ -7,14 +7,15 @@ namespace Onlineconf\Laravel\Config;
 use Closure;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
+use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Module;
 use Psr\Log\LoggerInterface;
 
 /**
  * Config repository that reads mapped keys from OnlineConf and falls back to the loaded configuration
- * for everything else: unmapped keys, keys OnlineConf does not have, values that do not parse, a module
- * file that cannot be opened.
+ * for everything else: unmapped keys, keys OnlineConf does not have, values that do not parse, invalid
+ * JSON, a module file that cannot be opened.
  *
  * The OnlineConf value is read with the type of the fallback (bool → getBool, int → getInt, …), so callers
  * get the type they got from config/*.php.
@@ -111,7 +112,8 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * An explicit runtime write wins: the key and every mapped key below it leave the map.
+     * An explicit runtime write wins: the key, every mapped key below it and every mapped key above it
+     * leave the map.
      *
      * @param array<mixed>|string $key
      */
@@ -128,7 +130,7 @@ final class OverridingRepository extends Repository
     {
         $prefix = $key . '.';
         foreach (array_keys($this->map) as $mapped) {
-            if ($mapped === $key || str_starts_with($mapped, $prefix)) {
+            if ($mapped === $key || str_starts_with($mapped, $prefix) || str_starts_with($key, $mapped . '.')) {
                 unset($this->map[$mapped]);
             }
         }
@@ -155,14 +157,24 @@ final class OverridingRepository extends Repository
             return $fallback;
         }
 
-        return match (true) {
-            is_bool($fallback) => $module->getBool($path, $fallback),
-            is_int($fallback) => $module->getInt($path, $fallback),
-            is_float($fallback) => $module->getFloat($path, $fallback),
-            is_string($fallback) => $module->getString($path, $fallback),
-            is_array($fallback) => $module->getArray($path, $fallback),
-            default => $module->get($path, $fallback),
-        };
+        try {
+            return match (true) {
+                is_bool($fallback) => $module->getBool($path, $fallback),
+                is_int($fallback) => $module->getInt($path, $fallback),
+                is_float($fallback) => $module->getFloat($path, $fallback),
+                is_string($fallback) => $module->getString($path, $fallback),
+                is_array($fallback) => $module->getArray($path, $fallback),
+                default => $module->get($path, $fallback),
+            };
+        } catch (InvalidJsonException $e) {
+            $this->logger->error(sprintf(
+                'OnlineConf value at %s is not valid JSON, config() falls back to the loaded configuration: %s',
+                $path,
+                $e->getMessage(),
+            ));
+
+            return $fallback;
+        }
     }
 
     /**

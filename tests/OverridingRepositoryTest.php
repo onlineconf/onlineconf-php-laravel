@@ -214,6 +214,35 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertFalse(isset($repository['absent']));
     }
 
+    public function testInvalidJsonFallsBackAndLogsAnError(): void
+    {
+        $module = new Module(new ArraySource(['/app/hosts' => 'j{not json']), $this->logger, 0);
+        $repository = new OverridingRepository(self::ITEMS, self::MAP, static fn (): Module => $module, $this->logger);
+
+        self::assertSame(['a.example.com'], $repository->get('app.hosts'));
+        self::assertTrue($this->log->hasErrorThatContains('/app/hosts'));
+    }
+
+    public function testSetOnAChildUnmapsTheParent(): void
+    {
+        $items = ['services' => ['mailer' => ['host' => 'from-config']]];
+        $map = ['services' => '/services', 'services.mailer.host' => '/services/mailer/host'];
+        $values = [
+            '/services' => ['mailer' => ['host' => 'from-onlineconf']],
+            '/services/mailer/host' => 'from-onlineconf-leaf',
+        ];
+        $repository = $this->repository($items, $map, $values);
+
+        $repository->set('services.mailer.host', 'runtime');
+
+        self::assertSame('runtime', $repository->get('services.mailer.host'));
+        self::assertSame(
+            ['mailer' => ['host' => 'runtime']],
+            $repository->get('services'),
+            'services is unmapped too, so it comes straight from the configuration',
+        );
+    }
+
     public function testOpenFailureFallsBackLogsOnceAndRetries(): void
     {
         $module = new Module(ArraySource::fromValues(self::VALUES), $this->logger, 0);

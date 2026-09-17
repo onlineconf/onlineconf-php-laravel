@@ -37,6 +37,12 @@ so a value that lives only in `.env` reaches the client only through the two con
 `ONLINECONF_DIR` (and `ONLINECONF_MODULE` if needed) into `.env`, not `CDB_CONFIG_FILE`. `config:cache` is
 safe: `env()` is read only inside the config file.
 
+The manager snapshots `dir`, `module`, `check_interval` and `log_channel` when it is first resolved (the first
+`Module` injection, facade call, or `ConfigOverride` install) — change them in `config/onlineconf.php` or
+`.env`, not at runtime. When the `config()` override is active, `log_channel` is resolved before service
+providers register, so a channel whose driver comes from `Log::extend()` in a provider cannot be used there
+(built-in drivers and `'driver' => 'custom'` work).
+
 ## Usage
 
 Inject the client's `Module` anywhere:
@@ -92,7 +98,8 @@ $source = Onlineconf::fake([
     '/my/service/db/opts' => ['pool' => 5],   // array  → j value (JSON)
     '/my/service/flag'    => null,            // null   → empty s value
 ]);
-// ... code under test reads the fake through the facade or an injected Module
+// call fake() before resolving the service under test — a singleton that already received a Module
+// keeps the old instance
 
 $source->replaceValues(['/my/service/db/host' => 'other']);   // visible on the next read
 Onlineconf::fake(['/key' => 'value'], 'other');                // a named module
@@ -121,10 +128,34 @@ also feeds the `config()` override below, so `config('services.mailer.host')` re
 ## Overriding config() values
 
 To migrate settings from `.env` to OnlineConf without touching the code that calls `config()`, map config
-keys to OnlineConf paths and install the override. One line in `bootstrap/app.php`, before `return $app;`:
+keys to OnlineConf paths and install the override in `bootstrap/app.php`.
+
+Laravel 10:
 
 ```php
+$app = new Illuminate\Foundation\Application(
+    $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
+);
+
+// ...
+
 \Onlineconf\Laravel\ConfigOverride::register($app);
+
+return $app;
+```
+
+Laravel 11 and 12:
+
+```php
+$app = Application::configure(basePath: dirname(__DIR__))
+    // ->withRouting(...)
+    // ->withMiddleware(...)
+    // ->withExceptions(...)
+    ->create();
+
+\Onlineconf\Laravel\ConfigOverride::register($app);
+
+return $app;
 ```
 
 and in the published `config/onlineconf.php`:
@@ -138,12 +169,12 @@ and in the published `config/onlineconf.php`:
 ```
 
 From then on `config('services.mailer.host')` is read from OnlineConf. The value from `config/*.php` (usually
-`env(...)`) stays as the fallback and is returned whenever OnlineConf has no such key, the value does not parse
-(a warning is logged, as the client always does) or the module file cannot be opened (an error is logged once).
-The OnlineConf value is read with the type of the fallback: a `bool` in the config file means `getBool`, an
-`int` means `getInt`, an array means `getArray` (a JSON value in OnlineConf), a string means `getString`,
-`null` means the raw value. Reading `config('services')` as a whole includes the mapped keys under it; an
-explicit `config()->set()` at runtime wins over the map.
+`env(...)`) stays as the fallback and is returned whenever: there is no such key in OnlineConf, the value does
+not parse (a warning is logged, as the client always does), the value is invalid JSON (an error is logged), or
+the module file cannot be opened (an error is logged once). The OnlineConf value is read with the type of the
+fallback: a `bool` in the config file means `getBool`, an `int` means `getInt`, an array means `getArray` (a
+JSON value in OnlineConf), a string means `getString`, `null` means the raw value. Reading `config('services')`
+as a whole includes the mapped keys under it; an explicit `config()->set()` at runtime wins over the map.
 
 - Migrate one key at a time by adding it to the map; `ONLINECONF_CONFIG_OVERRIDE=false` in `.env` turns the
   whole override off.
@@ -152,7 +183,13 @@ explicit `config()->set()` at runtime wins over the map.
 - `config:cache` is supported: the override works on top of the cached array.
 - Reads are lazy, so long-running workers see a changed value on the next `config()` call. Services that read
   their settings once in a constructor keep them, as with any Laravel configuration.
-- Not covered: `env()` calls outside `config/*.php` and `getenv()`. Move them into a config file first.
+- `set()` at runtime unmaps the written key, everything below it and everything above it: an explicit write
+  wins over the map for good, not just until the next read.
+- The client logs an unparsable mapped value verbatim at `warning` level (e.g. `"abc" is not an integer`), so
+  a malformed secret can end up in the log.
+- Not covered: `env()` calls outside `config/*.php` and `getenv()`; move them into a config file first. Also
+  not covered: `config()->all()` — it returns the loaded configuration without substitution (this is what
+  keeps `config:cache` safe), so code or packages reading `all()` see the fallbacks.
 - Cost: an unmapped key costs one extra array lookup; a mapped key is one `dba_fetch` on first read per process,
   then the client's cache.
 
@@ -174,7 +211,7 @@ module file and the version of the loaded data.
 
 ## Compatibility
 
-The package uses only framework APIs that are identical in Laravel 10, 11 and 12 (`singleton`, `bind`,
+The package uses only framework APIs that are identical in Laravel 10, 11 and 12 (`singletonIf`, `bind`,
 `mergeConfigFrom`, `publishes`, `commands`, `AboutCommand::add`, `afterBootstrapping`, facades, the
 `Illuminate\Config\Repository` base class). CI runs the test suite against
 all three majors, with PHPStan deprecation rules and PHPUnit `failOnDeprecation` on, so a deprecated API
@@ -190,6 +227,10 @@ PHP_VERSION=8.4 docker/run.sh composer check
 
 `composer.json` points at the client through a `path` repository until the client is published; set
 `ONLINECONF_PHP_DIR` if it is checked out elsewhere.
+
+Until the client is published on Packagist, `composer.json` carries this `path` repository on
+`../onlineconf-php`, so `composer require onlineconf/onlineconf-laravel` from Packagist will only work
+after the client is tagged and the repository entry is removed.
 
 `composer.json` also carries a `config.policy.advisories.ignore` entry for `laravel/framework <12.0`:
 Composer 2.10+ refuses to install a package version with an unpatched security advisory unless it is
