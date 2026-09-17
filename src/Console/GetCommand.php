@@ -35,11 +35,11 @@ final class GetCommand extends Command
             $module = $manager->module(is_string($moduleName) && $moduleName !== '' ? $moduleName : null);
             $this->output->writeln($this->render($module, $path));
         } catch (NotFoundException) {
-            return $this->fail("No such key: {$path}", self::EXIT_NOT_FOUND);
+            return $this->reportError("No such key: {$path}", self::EXIT_NOT_FOUND);
         } catch (OnlineconfException $e) {
-            return $this->fail($e->getMessage(), self::EXIT_ERROR);
+            return $this->reportError($e->getMessage(), self::EXIT_ERROR);
         } catch (\JsonException $e) {
-            return $this->fail($e->getMessage(), self::EXIT_ERROR);
+            return $this->reportError($e->getMessage(), self::EXIT_ERROR);
         }
 
         return self::SUCCESS;
@@ -77,7 +77,7 @@ final class GetCommand extends Command
         return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | $flags);
     }
 
-    private function fail(string $message, int $code): int
+    private function reportError(string $message, int $code): int
     {
         $this->output->getErrorStyle()->writeln($message);
 
