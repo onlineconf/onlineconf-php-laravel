@@ -98,6 +98,18 @@ final class GetCommandTest extends TestCase
         self::assertStringContainsString('/app/broken', $output);
     }
 
+    public function testNonUtf8ValueExitsWithTwoInJsonMode(): void
+    {
+        $this->useModule(['/app/bytes' => "s\xC0\xFF"]);
+
+        self::assertSame([0, "\xC0\xFF"], $this->runCommand(['path' => '/app/bytes']));
+
+        [$code, $output] = $this->runCommand(['path' => '/app/bytes', '--json' => true]);
+
+        self::assertSame(2, $code);
+        self::assertStringContainsStringIgnoringCase('utf-8', $output);
+    }
+
     public function testMissingModuleFileExitsWithTwo(): void
     {
         $this->config()->set('onlineconf.dir', $this->tempDir());

@@ -38,13 +38,15 @@ final class GetCommand extends Command
             return $this->fail("No such key: {$path}", self::EXIT_NOT_FOUND);
         } catch (OnlineconfException $e) {
             return $this->fail($e->getMessage(), self::EXIT_ERROR);
+        } catch (\JsonException $e) {
+            return $this->fail($e->getMessage(), self::EXIT_ERROR);
         }
 
         return self::SUCCESS;
     }
 
     /**
-     * @throws OnlineconfException
+     * @throws OnlineconfException|\JsonException
      */
     private function render(Module $module, string $path): string
     {
@@ -67,6 +69,9 @@ final class GetCommand extends Command
         return substr($raw, 1);
     }
 
+    /**
+     * @throws \JsonException
+     */
     private static function json(mixed $value, int $flags = 0): string
     {
         return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | $flags);

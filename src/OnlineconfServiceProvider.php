@@ -28,12 +28,9 @@ final class OnlineconfServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // @codeCoverageIgnoreStart
-        // Not reachable in testbench, which always runs in console.
         if (!$this->app->runningInConsole()) {
             return;
         }
-        // @codeCoverageIgnoreEnd
 
         $this->publishes([__DIR__ . '/../config/onlineconf.php' => $this->app->configPath('onlineconf.php')], 'onlineconf-config');
         $this->commands([GetCommand::class]);

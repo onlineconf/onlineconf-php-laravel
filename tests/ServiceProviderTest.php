@@ -4,12 +4,23 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Illuminate\Contracts\Foundation\Application;
 use Onlineconf\Laravel\ModuleManager;
+use Onlineconf\Laravel\OnlineconfServiceProvider;
 use Onlineconf\Laravel\Tests\Support\Cdb;
 use Onlineconf\Module;
 
 final class ServiceProviderTest extends TestCase
 {
+    public function testBootDoesNothingOutsideTheConsole(): void
+    {
+        $app = $this->createMock(Application::class);
+        $app->method('runningInConsole')->willReturn(false);
+        $app->expects(self::never())->method('configPath');
+
+        (new OnlineconfServiceProvider($app))->boot();
+    }
+
     public function testConfigDefaultsAreMerged(): void
     {
         self::assertSame(
