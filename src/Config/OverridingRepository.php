@@ -61,7 +61,11 @@ final class OverridingRepository extends Repository
         if (isset($this->below[$key]) && is_array($value)) {
             foreach ($this->below[$key] as $mapped) {
                 $sub = substr($mapped, strlen($key) + 1);
-                Arr::set($value, $sub, $this->override($this->map[$mapped], Arr::get($value, $sub)));
+                $override = $this->override($this->map[$mapped], Arr::get($value, $sub));
+                // No phantom keys: a descendant that is neither in the configuration nor in OnlineConf stays absent.
+                if ($override !== null || Arr::has($value, $sub)) {
+                    Arr::set($value, $sub, $override);
+                }
             }
         }
 
@@ -88,16 +92,14 @@ final class OverridingRepository extends Repository
     }
 
     /**
+     * The loaded configuration without OnlineConf substitution: config:cache serialises this, so only the
+     * fallbacks are ever written to disk.
+     *
      * @return array<mixed>
      */
     public function all(): array
     {
-        $items = parent::all();
-        foreach ($this->map as $key => $path) {
-            Arr::set($items, $key, $this->override($path, Arr::get($items, $key)));
-        }
-
-        return $items;
+        return parent::all();
     }
 
     /**
@@ -119,6 +121,7 @@ final class OverridingRepository extends Repository
         foreach (is_array($key) ? array_keys($key) : [$key] as $written) {
             $this->unmap((string) $written);
         }
+        $this->index();
     }
 
     private function unmap(string $key): void
@@ -129,7 +132,6 @@ final class OverridingRepository extends Repository
                 unset($this->map[$mapped]);
             }
         }
-        $this->index();
     }
 
     private function index(): void

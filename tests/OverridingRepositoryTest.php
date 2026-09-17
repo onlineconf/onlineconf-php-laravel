@@ -38,6 +38,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         'app.ratio' => '/app/ratio',
         'app.hosts' => '/app/hosts',
         'app.secret' => '/app/secret',
+        'app.missing' => '/app/missing',
         'services.mailer.host' => '/services/mailer/host',
         'services.mailer.port' => '/services/mailer/port',
         'absent' => '/absent',
@@ -127,23 +128,25 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertIsArray($app);
         self::assertTrue($app['debug']);
         self::assertSame(8, $app['workers']);
+        self::assertArrayNotHasKey('missing', $app, 'a descendant absent everywhere is not invented');
+        self::assertArrayHasKey('secret', $app, 'a descendant the configuration has stays');
+        self::assertSame('s3cret', $app['secret']);
     }
 
-    public function testAllIncludesMappedKeys(): void
+    public function testAllReturnsTheLoadedConfigurationWithoutSubstitution(): void
     {
         $all = $this->repository()->all();
 
         $app = $all['app'];
         self::assertIsArray($app);
-        self::assertSame('From OnlineConf', $app['name']);
+        self::assertSame('From config', $app['name']);
         $services = $all['services'];
         self::assertIsArray($services);
         self::assertSame('untouched', $services['other']);
         $mailer = $services['mailer'];
         self::assertIsArray($mailer);
-        self::assertSame('mail.onlineconf', $mailer['host']);
-        self::assertArrayHasKey('absent', $all);
-        self::assertNull($all['absent']);
+        self::assertSame('mail.config', $mailer['host']);
+        self::assertArrayNotHasKey('absent', $all, 'config:cache must not freeze OnlineConf values');
     }
 
     public function testGetManyWithAndWithoutDefaults(): void
@@ -168,6 +171,8 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertTrue($repository->has('services.other'));
         self::assertFalse($repository->has('absent'), 'neither in the configuration nor in OnlineConf');
         self::assertFalse($repository->has('nothing'));
+        self::assertFalse($repository->has('app.missing'));
+        self::assertNull($repository->get('app.missing'));
 
         $repository = $this->repository(values: self::VALUES + ['/absent' => 'present']);
 
