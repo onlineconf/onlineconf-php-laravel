@@ -13,7 +13,7 @@ return [
     'module' => env('ONLINECONF_MODULE'),
 
     // Seconds between stat() checks for updates; 0 checks on every access.
-    'check_interval' => (int) env('ONLINECONF_CHECK_INTERVAL', 5), // @phpstan-ignore cast.int (env() returns mixed; the framework only ever puts scalars or null into it)
+    'check_interval' => env('ONLINECONF_CHECK_INTERVAL', 5),
 
     // Log channel for the client's warnings and reload messages. null: the application's default logger.
     'log_channel' => env('ONLINECONF_LOG_CHANNEL'),

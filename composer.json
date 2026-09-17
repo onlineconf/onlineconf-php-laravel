@@ -17,7 +17,7 @@
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
-        "phpunit/phpunit": "^10.5"
+        "phpunit/phpunit": "^10.5 || ^11.5.3 || ^12.0"
     },
     "repositories": [
         {
@@ -59,7 +59,17 @@
     },
     "config": {
         "sort-packages": true,
-        "allow-plugins": false
+        "allow-plugins": false,
+        "policy": {
+            "advisories": {
+                "ignore": {
+                    "laravel/framework": {
+                        "constraint": "<12.0",
+                        "reason": "Laravel 10 and 11 are supported on purpose; advisories against those framework versions concern the host application, not this package"
+                    }
+                }
+            }
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true
