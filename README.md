@@ -17,6 +17,36 @@ php artisan vendor:publish --tag=onlineconf-config   # optional: config/onlineco
 
 The service provider and the `Onlineconf` facade alias are auto-discovered.
 
+### Try it without an updater
+
+The client ships ready-made modules in `vendor/onlineconf/onlineconf/examples/onlineconf/`: `TREE.cdb`
+(strings, numbers, booleans, durations, JSON arrays, child lists) and `legacy.cdb` (dot-notation keys).
+Next to each `.cdb` lies a `.conf` with the same content in the updater's text format — a human-readable
+listing only, the library never reads it. Point the package at that directory and look around:
+
+```sh
+export ONLINECONF_DIR=$PWD/vendor/onlineconf/onlineconf/examples/onlineconf
+php artisan onlineconf:get /app/hosts/main                       # www.example.com
+php artisan onlineconf:get --tree /app/nginx/anti-ddos           # pretty JSON of the subtree
+php artisan onlineconf:get --json /app/services/billing/admin_emails | jq .
+php artisan about --only=onlineconf                              # directory, module file, version
+```
+
+The same tree works for the `config()` override below. With `ConfigOverride::register($app)` installed
+and this map in `config/onlineconf.php`:
+
+```php
+'map' => [
+    'app.url'          => '/app/hosts/main',                 // string fallback → "www.example.com"
+    'session.lifetime' => '/app/nginx/anti-ddos/cookie-ttl', // int fallback    → 7200
+    'app.debug'        => '/app/nginx/anti-ddos/debug',      // bool fallback   → false ("0")
+],
+```
+
+`config('session.lifetime')` returns the integer `7200` and `config('app.debug')` returns `false`, while
+every unmapped key keeps its value from `config/*.php`. Unset `ONLINECONF_DIR` (or set it in `.env`)
+when you are done.
+
 ## Configuration
 
 `config/onlineconf.php`:
