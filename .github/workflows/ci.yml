@@ -21,14 +21,6 @@ jobs:
           - { laravel: '12', testbench: '10', php: '8.4' }
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: onlineconf-laravel
-
-      # The client is not tagged yet, so it is checked out at its default branch; pin a ref (or drop the path repository) once it is on Packagist.
-      - uses: actions/checkout@v4
-        with:
-          repository: onlineconf/onlineconf-php
-          path: onlineconf-php
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -43,26 +35,20 @@ jobs:
           php -r 'if (!in_array("cdb", dba_handlers(), true)) { fwrite(STDERR, "ext-dba has no cdb handler\n"); exit(1); }'
 
       - name: Validate composer.json
-        working-directory: onlineconf-laravel
         run: composer validate --strict
 
       - name: Pin the Laravel version
-        working-directory: onlineconf-laravel
         run: |
           composer require "laravel/framework:^${{ matrix.laravel }}.0" "orchestra/testbench:^${{ matrix.testbench }}.0" --no-update --no-interaction
 
       - name: Install dependencies
-        working-directory: onlineconf-laravel
         run: composer update --prefer-dist --no-progress --no-interaction
 
       - name: Coding standard
-        working-directory: onlineconf-laravel
         run: composer cs
 
       - name: Static analysis
-        working-directory: onlineconf-laravel
         run: composer phpstan
 
       - name: Tests with 100% coverage
-        working-directory: onlineconf-laravel
         run: composer coverage

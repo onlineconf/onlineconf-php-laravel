@@ -220,17 +220,10 @@ fails the build rather than the upgrade.
 ## Development
 
 ```sh
-docker/run.sh composer install      # PHP CLI + ext-dba + pcov; the client is mounted from ../onlineconf-php
+docker/run.sh composer install      # PHP CLI + ext-dba + pcov
 docker/run.sh composer check        # php-cs-fixer --dry-run, phpstan (level max), phpunit with 100% line coverage
 PHP_VERSION=8.4 docker/run.sh composer check
 ```
-
-`composer.json` points at the client through a `path` repository until the client is published; set
-`ONLINECONF_PHP_DIR` if it is checked out elsewhere.
-
-Until the client is published on Packagist, `composer.json` carries this `path` repository on
-`../onlineconf-php`, so `composer require onlineconf/onlineconf-laravel` from Packagist will only work
-after the client is tagged and the repository entry is removed.
 
 `composer.json` also carries a `config.policy.advisories.ignore` entry for `laravel/framework <12.0`:
 Composer 2.10+ refuses to install a package version with an unpatched security advisory unless it is
