@@ -74,6 +74,10 @@ final class ConfigOverride
             return $handler;
         }
         if (is_string($handler) && $handler !== '') {
+            if (!class_exists($handler) && !$app->bound($handler)) {
+                throw new LogicException(sprintf('onlineconf.on_missing: class %s does not exist', $handler));
+            }
+
             return static function (MissingValue $missing) use ($app, $handler): void {
                 $callable = $app->make($handler);
                 if (!is_callable($callable)) {

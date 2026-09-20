@@ -206,7 +206,7 @@ final class OverridingRepository extends Repository
      */
     private static function callSite(): array
     {
-        $package = dirname(__DIR__);
+        $package = dirname(__DIR__) . \DIRECTORY_SEPARATOR;
         $vendor = \DIRECTORY_SEPARATOR . 'vendor' . \DIRECTORY_SEPARATOR;
         $frames = [];
         foreach (debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {

@@ -228,7 +228,9 @@ as a whole includes the mapped keys under it; an explicit `config()->set()` at r
 
 A mapped key that OnlineConf does not have is a migration gap: the value still comes from `config/*.php`, but
 nobody is told. Set `on_missing` to an invokable class and the package calls it once per config key and process
-(per request under PHP-FPM) with an `Onlineconf\Laravel\MissingValue`:
+(per request under PHP-FPM) with an `Onlineconf\Laravel\MissingValue`. Under Octane, Horizon or queue workers,
+"once per process" means once per worker lifetime, so a log-based alert may fire only once until the worker
+restarts:
 
 ```php
 // config/onlineconf.php
@@ -252,8 +254,9 @@ final class ReportMissingValue
 
 `$missing->fallback` carries the value config() returned; log it only if you know it is not a secret. The
 package itself logs nothing here and never swallows an exception thrown by the handler. A module file that
-cannot be opened is a different failure (logged once as an error) and does not reach the handler. A Closure
-is accepted as well, but a Closure cannot be `config:cache`d. A class name is resolved from the container on each report (once per config key and process), so keep the handler cheap to construct or bind it as a singleton.
+cannot be opened is a different failure (logged once as an error) and does not reach the handler. A Closure is
+accepted as well, but a Closure cannot be `config:cache`d. A class name is resolved from the container on each
+report (once per config key and process), so keep the handler cheap to construct or bind it as a singleton.
 
 ## Artisan
 
@@ -278,7 +281,8 @@ module file and the version of the loaded data.
 
 `onlineconf:set` edits a **local** module file: it reads the whole CDB, changes one key, regenerates the child
 lists and rewrites both the `.cdb` (atomically, through a temporary file) and the `.conf` listing next to it.
-The two writes are not one transaction: if the .conf cannot be written the .cdb is already updated (the library never reads .conf, so nothing breaks). A value passed together with --delete is ignored.
+The two writes are not one transaction: if the `.conf` cannot be written the `.cdb` is already updated (the
+library never reads `.conf`, so nothing breaks). A value passed together with `--delete` is ignored.
 Exit codes: `0`; `1` when `--delete` names a key that does not exist; `2` when the file cannot be opened, the
 directory is not writable, the JSON is invalid or the arguments are wrong. It is a development tool for a copy
 of a module taken from a real environment; production modules are written by `onlineconf-updater` only.

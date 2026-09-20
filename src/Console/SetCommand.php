@@ -48,6 +48,9 @@ final class SetCommand extends Command
         if ($path === '' || str_ends_with($path, '/')) {
             return $this->reportError('Child lists ("<path>/") are generated from the keys; give a key path', self::EXIT_ERROR);
         }
+        if (!str_starts_with($path, '/')) {
+            return $this->reportError('Key path must start with "/"', self::EXIT_ERROR);
+        }
         if (!is_writable(dirname($file))) {
             return $this->reportError(sprintf('%s: directory is not writable', dirname($file)), self::EXIT_ERROR);
         }

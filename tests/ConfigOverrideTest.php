@@ -171,6 +171,16 @@ final class ConfigOverrideTest extends TestCase
         config('app.missing');
     }
 
+    public function testUnknownOnMissingClassFailsAtInstall(): void
+    {
+        $this->config()->set('onlineconf.map', ['app.missing' => '/app/missing']);
+        $this->config()->set('onlineconf.on_missing', 'Nope\\Missing');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('onlineconf.on_missing: class Nope\\Missing does not exist');
+        ConfigOverride::install($this->application());
+    }
+
     public function testInvalidOnMissingValueFailsAtInstall(): void
     {
         $this->config()->set('onlineconf.map', ['app.missing' => '/app/missing']);

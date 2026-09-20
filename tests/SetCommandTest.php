@@ -115,12 +115,24 @@ final class SetCommandTest extends TestCase
 
     public function testChildListPathIsRejected(): void
     {
-        $this->useModule(self::MODULE);
+        $file = $this->useModule(self::MODULE);
 
         [$code, $out] = $this->runCommand(['path' => '/app/', 'value' => 'x']);
 
         self::assertSame(2, $code);
         self::assertStringContainsString('generated', $out);
+        self::assertSame(self::MODULE['/app/name'], CdbReader::read($file)['/app/name'], 'the file is untouched');
+    }
+
+    public function testPathWithoutLeadingSlashIsRejected(): void
+    {
+        $file = $this->useModule(self::MODULE);
+
+        [$code, $out] = $this->runCommand(['path' => 'app/name', 'value' => 'x']);
+
+        self::assertSame(2, $code);
+        self::assertStringContainsString('must start with "/"', $out);
+        self::assertSame(self::MODULE['/app/name'], CdbReader::read($file)['/app/name'], 'the file is untouched');
     }
 
     public function testMissingModuleFileIsAnError(): void
