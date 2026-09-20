@@ -6,9 +6,9 @@ namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
+use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\OnlineconfServiceProvider;
-use Onlineconf\Laravel\Tests\Support\Cdb;
 use Onlineconf\Module;
 
 final class ServiceProviderTest extends TestCase
@@ -64,7 +64,7 @@ final class ServiceProviderTest extends TestCase
     {
         $envDir = $this->tempDir() . '/env';
         mkdir($envDir);
-        Cdb::write($envDir . '/TREE.cdb', ['/app/name' => 'sfrom-env']);
+        CdbWriter::write($envDir . '/TREE.cdb', ['/app/name' => 'sfrom-env']);
         $this->useModule(['/app/name' => 'sfrom-config']);
         putenv('ONLINECONF_DIR=' . $envDir);
 
