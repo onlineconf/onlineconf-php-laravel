@@ -11,10 +11,18 @@ use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\Facades\Onlineconf;
+use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Laravel\ModuleManager;
+use Onlineconf\Laravel\Tests\Support\RecordingHandler;
 
 final class ConfigOverrideTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        RecordingHandler::$missing = [];
+    }
+
     public function testInstallReplacesTheRepositoryAndReadsMappedKeys(): void
     {
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
@@ -114,5 +122,62 @@ final class ConfigOverrideTest extends TestCase
             $app->flush();
             Container::setInstance($this->application());
         }
+    }
+
+    public function testOnMissingClassIsResolvedFromTheContainer(): void
+    {
+        $this->useModule(['/app/name' => 'sFrom OnlineConf']);
+        $this->config()->set('app.missing', 'dflt');
+        $this->config()->set('onlineconf.map', ['app.name' => '/app/name', 'app.missing' => '/app/missing']);
+        $this->config()->set('onlineconf.on_missing', RecordingHandler::class);
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame('From OnlineConf', config('app.name'));
+        self::assertSame('dflt', config('app.missing'));
+        self::assertCount(1, RecordingHandler::$missing);
+        $missing = RecordingHandler::$missing[0];
+        self::assertSame('app.missing', $missing->configKey);
+        self::assertSame('/app/missing', $missing->path);
+        self::assertSame('dflt', $missing->fallback);
+        self::assertSame('TREE', $missing->module);
+        self::assertSame(__FILE__, $missing->file, 'the config() call above is the call site');
+    }
+
+    public function testOnMissingClosureIsCalledAsIs(): void
+    {
+        $seen = [];
+        $this->useModule([]);
+        $this->config()->set('onlineconf.map', ['app.missing' => '/app/missing']);
+        $this->config()->set('onlineconf.on_missing', static function (MissingValue $missing) use (&$seen): void {
+            $seen[] = $missing->path;
+        });
+
+        ConfigOverride::install($this->application());
+        config('app.missing');
+
+        self::assertSame(['/app/missing'], $seen);
+    }
+
+    public function testNonInvokableOnMissingClassFails(): void
+    {
+        $this->useModule([]);
+        $this->config()->set('onlineconf.map', ['app.missing' => '/app/missing']);
+        $this->config()->set('onlineconf.on_missing', \stdClass::class);
+        ConfigOverride::install($this->application());
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('onlineconf.on_missing: stdClass is not invokable');
+        config('app.missing');
+    }
+
+    public function testInvalidOnMissingValueFailsAtInstall(): void
+    {
+        $this->config()->set('onlineconf.map', ['app.missing' => '/app/missing']);
+        $this->config()->set('onlineconf.on_missing', 42);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('onlineconf.on_missing must be null, a class name or a Closure');
+        ConfigOverride::install($this->application());
     }
 }

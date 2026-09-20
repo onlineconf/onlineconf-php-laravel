@@ -22,6 +22,12 @@ return [
     // Onlineconf\Laravel\ConfigOverride::register($app) is called in bootstrap/app.php.
     'config_override' => (bool) env('ONLINECONF_CONFIG_OVERRIDE', true),
 
+    // Called once per config key and process when a mapped key is absent from OnlineConf and config() falls back
+    // to the value below. null: silent fallback. A class name is resolved from the container and invoked with
+    // an Onlineconf\Laravel\MissingValue (config key, OnlineConf path, fallback, module, call site); a Closure
+    // works too but not together with config:cache.
+    'on_missing' => null,
+
     // Laravel config key => OnlineConf path. A mapped key is read from OnlineConf and falls back to the value
     // below it in config/*.php when OnlineConf has no such key. Empty: the override does nothing.
     'map' => [
