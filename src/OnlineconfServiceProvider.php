@@ -9,6 +9,7 @@ use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Support\ServiceProvider;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Console\GetCommand;
+use Onlineconf\Laravel\Console\SetCommand;
 use Onlineconf\Module;
 
 final class OnlineconfServiceProvider extends ServiceProvider
@@ -35,7 +36,7 @@ final class OnlineconfServiceProvider extends ServiceProvider
         }
 
         $this->publishes([__DIR__ . '/../config/onlineconf.php' => $this->app->configPath('onlineconf.php')], 'onlineconf-config');
-        $this->commands([GetCommand::class]);
+        $this->commands([GetCommand::class, SetCommand::class]);
 
         AboutCommand::add('OnlineConf', fn (): array => $this->about());
     }
