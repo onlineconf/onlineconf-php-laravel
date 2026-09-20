@@ -8,6 +8,7 @@ use Monolog\Handler\TestHandler;
 use Monolog\Logger;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Config\OverridingRepository;
+use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
@@ -71,11 +72,21 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
      * @param array<string, string> $map
      * @param array<string, string|int|float|bool|array<mixed>|null> $values
      */
-    private function repository(array $items = self::ITEMS, array $map = self::MAP, array $values = self::VALUES): OverridingRepository
+    private function repository(array $items = self::ITEMS, array $map = self::MAP, array $values = self::VALUES, ?\Closure $onMissing = null): OverridingRepository
     {
         $module = new Module(ArraySource::fromValues($values), $this->logger, 0);
 
-        return new OverridingRepository($items, $map, static fn (): Module => $module, $this->logger);
+        return new OverridingRepository($items, $map, static fn (): Module => $module, $this->logger, $onMissing);
+    }
+
+    /**
+     * @param list<MissingValue> $reported
+     */
+    private function recording(array &$reported): \Closure
+    {
+        return static function (MissingValue $missing) use (&$reported): void {
+            $reported[] = $missing;
+        };
     }
 
     public function testMappedKeysAreReadWithTheTypeOfTheFallback(): void
@@ -263,5 +274,87 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertTrue($this->log->hasErrorThatContains('cannot open TREE.cdb'));
 
         self::assertSame('From OnlineConf', $repository->get('app.name'), 'the third attempt succeeds');
+    }
+
+    public function testMissingKeyIsReportedOncePerConfigKeyWithTheCallSite(): void
+    {
+        $reported = [];
+        $repository = $this->repository(onMissing: $this->recording($reported));
+
+        self::assertSame(25, $repository->get('services.mailer.port'));
+        $line = __LINE__ - 1;
+        self::assertSame(25, $repository->get('services.mailer.port'), 'the second read is served the same way');
+        self::assertNull($repository->get('absent'));
+
+        self::assertCount(2, $reported, 'one report per config key');
+        $first = $reported[0];
+        self::assertSame('services.mailer.port', $first->configKey);
+        self::assertSame('/services/mailer/port', $first->path);
+        self::assertSame(25, $first->fallback);
+        self::assertSame('array', $first->module);
+        self::assertSame(__FILE__, $first->file);
+        self::assertSame($line, $first->line);
+        self::assertSame(__FILE__ . ':' . $line, $first->trace[0]);
+        self::assertLessThanOrEqual(5, count($first->trace));
+        self::assertSame('absent', $reported[1]->configKey);
+        self::assertSame('/absent', $reported[1]->path);
+        self::assertNull($reported[1]->fallback);
+    }
+
+    public function testPresentKeyIsNotReported(): void
+    {
+        $reported = [];
+        $repository = $this->repository(onMissing: $this->recording($reported));
+
+        self::assertSame('From OnlineConf', $repository->get('app.name'));
+        self::assertSame('s3cret', $repository->get('app.secret'));
+
+        self::assertSame([], $reported);
+    }
+
+    public function testParentReadReportsMissingDescendants(): void
+    {
+        $reported = [];
+        $repository = $this->repository(onMissing: $this->recording($reported));
+
+        $repository->get('services');
+
+        self::assertCount(1, $reported);
+        self::assertSame('services.mailer.port', $reported[0]->configKey);
+    }
+
+    public function testUnavailableModuleDoesNotReport(): void
+    {
+        $reported = [];
+        $repository = new OverridingRepository(
+            self::ITEMS,
+            self::MAP,
+            static fn (): Module => throw new OpenException('gone'),
+            $this->logger,
+            $this->recording($reported),
+        );
+
+        self::assertSame('From config', $repository->get('app.name'));
+        self::assertSame([], $reported, 'a module that cannot be opened is an error already logged, not a missing key');
+    }
+
+    public function testHandlerExceptionPropagates(): void
+    {
+        $repository = $this->repository(onMissing: static function (MissingValue $missing): void {
+            throw new \RuntimeException('handler failed for ' . $missing->configKey);
+        });
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('handler failed for absent');
+        $repository->get('absent');
+    }
+
+    public function testMissingValueWithoutFramesHasNoFileAndLine(): void
+    {
+        $missing = new MissingValue('a.b', '/a/b', null, 'TREE', []);
+
+        self::assertNull($missing->file);
+        self::assertNull($missing->line);
+        self::assertSame([], $missing->trace);
     }
 }
