@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Contracts\Config\Repository;
+use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Laravel\OnlineconfServiceProvider;
-use Onlineconf\Laravel\Tests\Support\Cdb;
 use Orchestra\Testbench\TestCase as TestbenchTestCase;
 
 abstract class TestCase extends TestbenchTestCase
@@ -88,7 +88,7 @@ abstract class TestCase extends TestbenchTestCase
     protected function writeModule(array $raw, string $name = 'TREE'): string
     {
         $file = $this->tempDir() . '/' . $name . '.cdb';
-        Cdb::write($file, $raw);
+        CdbWriter::write($file, $raw);
 
         return $file;
     }

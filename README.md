@@ -58,6 +58,7 @@ when you are done.
 | `check_interval` | `ONLINECONF_CHECK_INTERVAL` | `5` | seconds between `stat()` checks for updates, `0` = every access |
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
 | `config_override` | `ONLINECONF_CONFIG_OVERRIDE` | `true` | kill switch of the `config()` override below |
+| `on_missing` | — | `null` | handler for mapped keys absent from OnlineConf: a class name (resolved from the container, invoked with a `MissingValue`) or a Closure; see below |
 | `map` | — | `[]` | Laravel config key → OnlineConf path for the `config()` override below |
 
 With `dir` and `module` unset the client's own resolution applies: `ONLINECONF_DIR`, `ONLINECONF_CONFIG`
@@ -223,6 +224,40 @@ as a whole includes the mapped keys under it; an explicit `config()->set()` at r
 - Cost: an unmapped key costs one extra array lookup; a mapped key is one `dba_fetch` on first read per process,
   then the client's cache.
 
+### Knowing when the fallback is used
+
+A mapped key that OnlineConf does not have is a migration gap: the value still comes from `config/*.php`, but
+nobody is told. Set `on_missing` to an invokable class and the package calls it once per config key and process
+(per request under PHP-FPM) with an `Onlineconf\Laravel\MissingValue`. Under Octane, Horizon or queue workers,
+"once per process" means once per worker lifetime, so a log-based alert may fire only once until the worker
+restarts:
+
+```php
+// config/onlineconf.php
+'on_missing' => App\Onlineconf\ReportMissingValue::class,
+
+// app/Onlineconf/ReportMissingValue.php
+final class ReportMissingValue
+{
+    public function __invoke(\Onlineconf\Laravel\MissingValue $missing): void
+    {
+        Log::warning('OnlineConf has no value, config() falls back', [
+            'config_key' => $missing->configKey, // 'services.mailer.host'
+            'path' => $missing->path,            // '/my/service/mailer/host'
+            'module' => $missing->module,        // 'TREE'
+            'called_at' => $missing->file . ':' . $missing->line, // first frame outside vendor/
+            'trace' => $missing->trace,          // up to five such frames
+        ]);
+    }
+}
+```
+
+`$missing->fallback` carries the value config() returned; log it only if you know it is not a secret. The
+package itself logs nothing here and never swallows an exception thrown by the handler. A module file that
+cannot be opened is a different failure (logged once as an error) and does not reach the handler. A Closure is
+accepted as well, but a Closure cannot be `config:cache`d. A class name is resolved from the container on each
+report (once per config key and process), so keep the handler cheap to construct or bind it as a singleton.
+
 ## Artisan
 
 ```
@@ -231,6 +266,11 @@ php artisan onlineconf:get --json /my/service/db/opts | jq .
 php artisan onlineconf:get --tree /my/service
 php artisan onlineconf:get --module=other /key
 php artisan about --only=onlineconf
+
+php artisan onlineconf:set /my/service/db/host db.local        # s value
+php artisan onlineconf:set --json /my/service/db/opts '{"pool":5}'
+php artisan onlineconf:set --delete /my/service/db/opts
+php artisan onlineconf:set --module=other /key value
 ```
 
 `onlineconf:get` prints `s` values as is and `j` values as the stored JSON text; `--json` encodes any
@@ -238,6 +278,14 @@ value as JSON, `--tree` prints `getTree()` as pretty JSON (on a path with no des
 client's `getTree()` behaviour: `null`, exit `0`, not a "not found" error). Exit codes: `0`; `1` when the
 key does not exist; `2` on file, format or invalid-JSON errors. `about` shows the directory, the default
 module file and the version of the loaded data.
+
+`onlineconf:set` edits a **local** module file: it reads the whole CDB, changes one key, regenerates the child
+lists and rewrites both the `.cdb` (atomically, through a temporary file) and the `.conf` listing next to it.
+The two writes are not one transaction: if the `.conf` cannot be written the `.cdb` is already updated (the
+library never reads `.conf`, so nothing breaks). A value passed together with `--delete` is ignored.
+Exit codes: `0`; `1` when `--delete` names a key that does not exist; `2` when the file cannot be opened, the
+directory is not writable, the JSON is invalid or the arguments are wrong. It is a development tool for a copy
+of a module taken from a real environment; production modules are written by `onlineconf-updater` only.
 
 ## Compatibility
 

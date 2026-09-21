@@ -6,9 +6,9 @@ namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
+use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\OnlineconfServiceProvider;
-use Onlineconf\Laravel\Tests\Support\Cdb;
 use Onlineconf\Module;
 
 final class ServiceProviderTest extends TestCase
@@ -25,7 +25,7 @@ final class ServiceProviderTest extends TestCase
     public function testConfigDefaultsAreMerged(): void
     {
         self::assertSame(
-            ['dir' => null, 'module' => null, 'check_interval' => 5, 'log_channel' => null, 'config_override' => true, 'map' => []],
+            ['dir' => null, 'module' => null, 'check_interval' => 5, 'log_channel' => null, 'config_override' => true, 'on_missing' => null, 'map' => []],
             $this->config()->get('onlineconf'),
         );
     }
@@ -64,7 +64,7 @@ final class ServiceProviderTest extends TestCase
     {
         $envDir = $this->tempDir() . '/env';
         mkdir($envDir);
-        Cdb::write($envDir . '/TREE.cdb', ['/app/name' => 'sfrom-env']);
+        CdbWriter::write($envDir . '/TREE.cdb', ['/app/name' => 'sfrom-env']);
         $this->useModule(['/app/name' => 'sfrom-config']);
         putenv('ONLINECONF_DIR=' . $envDir);
 

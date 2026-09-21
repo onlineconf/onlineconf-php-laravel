@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel;
 
+use Closure;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application as ApplicationContract;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use LogicException;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Module;
 
@@ -51,7 +53,41 @@ final class ConfigOverride
             self::stringMap($map),
             static fn (): Module => $manager->module(),
             ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel')),
+            self::onMissing($app, $config->get('onlineconf.on_missing')),
         ));
+    }
+
+    /**
+     * The on_missing handler as a Closure: null stays null, a Closure is used as is, a class name is resolved
+     * from the container on the first call (the container is not booted when the override is installed).
+     *
+     * @return Closure(MissingValue): void|null
+     *
+     * @throws LogicException for any other value
+     */
+    private static function onMissing(ApplicationContract $app, mixed $handler): ?Closure
+    {
+        if ($handler === null) {
+            return null;
+        }
+        if ($handler instanceof Closure) {
+            return $handler;
+        }
+        if (is_string($handler) && $handler !== '') {
+            if (!class_exists($handler) && !$app->bound($handler)) {
+                throw new LogicException(sprintf('onlineconf.on_missing: class %s does not exist', $handler));
+            }
+
+            return static function (MissingValue $missing) use ($app, $handler): void {
+                $callable = $app->make($handler);
+                if (!is_callable($callable)) {
+                    throw new LogicException(sprintf('onlineconf.on_missing: %s is not invokable', $handler));
+                }
+                $callable($missing);
+            };
+        }
+
+        throw new LogicException('onlineconf.on_missing must be null, a class name or a Closure');
     }
 
     /**

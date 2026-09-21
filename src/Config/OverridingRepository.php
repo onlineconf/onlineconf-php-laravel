@@ -9,6 +9,7 @@ use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
 use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Module;
 use Psr\Log\LoggerInterface;
 
@@ -30,16 +31,21 @@ final class OverridingRepository extends Repository
 
     private bool $openErrorLogged = false;
 
+    /** @var array<string, true> config keys already handed to the on_missing handler */
+    private array $reported = [];
+
     /**
-     * @param array<mixed>          $items         the loaded configuration
-     * @param array<string, string> $map           config key → OnlineConf path
-     * @param Closure(): Module     $moduleFactory returns the module to read from; called on every mapped read
+     * @param array<mixed>                      $items         the loaded configuration
+     * @param array<string, string>             $map           config key → OnlineConf path
+     * @param Closure(): Module                 $moduleFactory returns the module to read from; called on every mapped read
+     * @param Closure(MissingValue): void|null  $onMissing     called once per config key and process when a mapped key is absent from OnlineConf
      */
     public function __construct(
         array $items,
         array $map,
         private readonly Closure $moduleFactory,
         private readonly LoggerInterface $logger,
+        private readonly ?Closure $onMissing = null,
     ) {
         parent::__construct($items);
         $this->map = $map;
@@ -57,12 +63,12 @@ final class OverridingRepository extends Repository
 
         $value = parent::get($key, $default);
         if (isset($this->map[$key])) {
-            return $this->override($this->map[$key], $value);
+            return $this->override($key, $this->map[$key], $value);
         }
         if (isset($this->below[$key]) && is_array($value)) {
             foreach ($this->below[$key] as $mapped) {
                 $sub = substr($mapped, strlen($key) + 1);
-                $override = $this->override($this->map[$mapped], Arr::get($value, $sub));
+                $override = $this->override($mapped, $this->map[$mapped], Arr::get($value, $sub));
                 // No phantom keys: a descendant that is neither in the configuration nor in OnlineConf stays absent.
                 if ($override !== null || Arr::has($value, $sub)) {
                     Arr::set($value, $sub, $override);
@@ -148,12 +154,18 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The OnlineConf value read with the type of the fallback; the fallback on any failure the client reports.
+     * The OnlineConf value read with the type of the fallback; the fallback on any failure the client reports
+     * and when the key is absent (reported to the on_missing handler).
      */
-    private function override(string $path, mixed $fallback): mixed
+    private function override(string $key, string $path, mixed $fallback): mixed
     {
         $module = $this->module();
         if ($module === null) {
+            return $fallback;
+        }
+        if (!$module->has($path)) {
+            $this->reportMissing($key, $path, $fallback, $module);
+
             return $fallback;
         }
 
@@ -175,6 +187,38 @@ final class OverridingRepository extends Repository
 
             return $fallback;
         }
+    }
+
+    private function reportMissing(string $key, string $path, mixed $fallback, Module $module): void
+    {
+        if ($this->onMissing === null || isset($this->reported[$key])) {
+            return;
+        }
+        $this->reported[$key] = true;
+        ($this->onMissing)(new MissingValue($key, $path, $fallback, $module->name(), self::callSite()));
+    }
+
+    /**
+     * Up to five "file:line" frames of the current stack outside vendor/ and outside this package, innermost first:
+     * the application code that called config().
+     *
+     * @return list<string>
+     */
+    private static function callSite(): array
+    {
+        $package = dirname(__DIR__) . \DIRECTORY_SEPARATOR;
+        $vendor = \DIRECTORY_SEPARATOR . 'vendor' . \DIRECTORY_SEPARATOR;
+        $frames = [];
+        foreach (debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            $file = $frame['file'] ?? null;
+            if ($file === null || str_starts_with($file, $package) || str_contains($file, $vendor)) {
+                continue;
+            }
+            assert(isset($frame['line']));
+            $frames[] = $file . ':' . $frame['line'];
+        }
+
+        return array_slice($frames, 0, 5);
     }
 
     /**
