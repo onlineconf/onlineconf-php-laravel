@@ -25,7 +25,7 @@ final class SetCommand extends Command
     /** @var string */
     protected $signature = 'onlineconf:set
         {path : Key path, for example /my/service/db/host}
-        {value? : The new value; required unless --delete is given}
+        {value? : The new value; not needed when deleting}
         {--json : Store the value as JSON (type "j"); it must be valid JSON text}
         {--delete : Remove the key}
         {--module= : Module name ("TREE") or file path; the default module when omitted}';
