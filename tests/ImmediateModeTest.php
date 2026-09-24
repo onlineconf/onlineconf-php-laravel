@@ -8,6 +8,7 @@ use Illuminate\Container\Container;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Facade;
 use Onlineconf\Exception\NotFoundException;
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ImmediateModule;
@@ -46,12 +47,14 @@ final class ImmediateModeTest extends TestCase
     /**
      * An application as it is while LoadConfiguration runs: nothing of this package is registered.
      */
-    private function beforeProviders(): Application
+    private function beforeProviders(bool $withModule = true): Application
     {
-        $this->writeModule([
-            '/app/name' => 'sFrom OnlineConf',
-            '/app/workers' => 's8',
-        ]);
+        if ($withModule) {
+            $this->writeModule([
+                '/app/name' => 'sFrom OnlineConf',
+                '/app/workers' => 's8',
+            ]);
+        }
         putenv('ONLINECONF_DIR=' . $this->tempDir());
         $this->bare = new Application($this->tempDir());
         Facade::setFacadeApplication($this->bare);
@@ -127,5 +130,33 @@ final class ImmediateModeTest extends TestCase
 
         self::assertSame('from the container', Onlineconf::getString('/app/name', 'dflt'));
         self::assertSame([], EagerReads::all(), 'a normal read is not an eager read');
+    }
+
+    public function testGettersFallBackWhenTheModuleFileIsNotThere(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'a missing module must not stop the boot');
+        self::assertSame(7, Onlineconf::getInt('/app/workers', 7));
+        self::assertSame([], EagerReads::all(), 'nothing was read, so there is nothing to list');
+        $error = EagerReads::openError();
+        self::assertIsString($error);
+        self::assertStringContainsString('TREE', $error);
+    }
+
+    public function testRequireThrowsWhenTheModuleFileIsNotThere(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        $this->expectException(OpenException::class);
+        Onlineconf::requireString('/app/name');
+    }
+
+    public function testOtherMethodsThrowWhenTheModuleFileIsNotThere(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        $this->expectException(OpenException::class);
+        Onlineconf::name();
     }
 }

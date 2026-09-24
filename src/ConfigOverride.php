@@ -63,7 +63,7 @@ final class ConfigOverride
         $onMissing = self::onMissing($app, Arr::get($items, 'onlineconf.on_missing'));
         if ($map === []) {
             self::writeBack($config, $items);
-            self::reportEagerReads($onMissing);
+            self::reportEagerReads($app, $items, $onMissing);
 
             return;
         }
@@ -79,7 +79,7 @@ final class ConfigOverride
             $onMissing,
         ));
 
-        self::reportEagerReads($onMissing);
+        self::reportEagerReads($app, $items, $onMissing);
     }
 
     /**
@@ -123,13 +123,22 @@ final class ConfigOverride
     }
 
     /**
-     * Reports the nodes that {@see Onlineconf} read while config/*.php was loading and did not find. The
-     * config key is empty: such a read has no config key, only a call site.
+     * Reports the nodes that {@see \Onlineconf\Laravel\Facades\Onlineconf} read while config/*.php was
+     * loading and did not find. The config key is empty: such a read has no config key, only a call site.
+     * A module file that could not be opened is logged once instead — an availability failure, not a
+     * migration gap, so the on_missing handler does not hear about those reads.
      *
+     * @param array<mixed>                     $items
      * @param Closure(MissingValue): void|null $onMissing
      */
-    private static function reportEagerReads(?Closure $onMissing): void
+    private static function reportEagerReads(ApplicationContract $app, array $items, ?Closure $onMissing): void
     {
+        $openError = EagerReads::unreportedOpenError();
+        if ($openError !== null) {
+            ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel'))->error(
+                'OnlineConf is unavailable, the reads in config/*.php fell back to their defaults: ' . $openError,
+            );
+        }
         foreach (EagerReads::unreported() as $read) {
             if ($onMissing !== null && $read->missing) {
                 $onMissing(new MissingValue('', $read->path, $read->default, $read->module, $read->trace));

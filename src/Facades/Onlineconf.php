@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Facades;
 
 use Illuminate\Support\Facades\Facade;
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\ImmediateModule;
 use Onlineconf\Laravel\ModuleManager;
@@ -80,7 +81,8 @@ final class Onlineconf extends Facade
      *
      * Until the service provider binds {@see Module}, which happens after config/*.php is loaded, the call
      * goes to the process-wide {@see ImmediateModule} and is recorded in {@see EagerReads}. That is what
-     * makes Onlineconf::getString() usable in config/*.php in place of env().
+     * makes Onlineconf::getString() usable in config/*.php in place of env(). A module file that cannot be
+     * opened is a fallback for get* and an exception for require*.
      *
      * @param string       $method
      * @param array<mixed> $args
@@ -100,11 +102,25 @@ final class Onlineconf extends Facade
      */
     private static function immediate(string $method, array $args): mixed
     {
-        $module = ImmediateModule::module();
         $type = self::READS[$method] ?? null;
+        $optional = $type !== null && !str_starts_with($method, 'require');
+        $default = $optional ? ($args[1] ?? null) : null;
+
+        try {
+            $module = ImmediateModule::module();
+        } catch (OpenException $e) {
+            // A module file that is not there yet must not stop the application from booting: get* fall back
+            // to their defaults, exactly as config() does later, and install() logs the failure once.
+            EagerReads::openFailed($e->getMessage());
+            if (!$optional) {
+                throw $e;
+            }
+
+            return $default;
+        }
+
         $path = $args[0] ?? null;
         if ($type !== null && is_string($path)) {
-            $default = str_starts_with($method, 'require') ? null : ($args[1] ?? null);
             EagerReads::record($path, $type, $default, !$module->has($path), $module->name());
         }
 

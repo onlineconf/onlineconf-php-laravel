@@ -289,10 +289,16 @@ still a fallback: it is an availability failure, logged once, and the configurat
   `CDB_CONFIG_FILE`, then the client's defaults), not from `config/onlineconf.php`, which is not loaded yet.
   `.env` is already loaded at that point, so `ONLINECONF_DIR` in `.env` works; `onlineconf.dir` does not.
 - **`ONLINECONF_CONFIG_OVERRIDE=false` switches immediate reads off too**: `get*` return their defaults and
-  `require*` throw. A missing or unreadable module file throws the client's `OpenException` during boot — that
-  is the price of reading at load time, and the kill switch is the way out.
+  `require*` throw `NotFoundException`.
+- **A module file that cannot be opened does not stop the boot**: `get*` return their defaults, exactly as
+  `config()` does on the lazy path, and `ConfigOverride::install()` logs the failure once through the
+  configured log channel. `require*` still throw the client's `OpenException` — a required node cannot be
+  satisfied without the tree. So a pod without the OnlineConf volume, or a checkout before the first clone,
+  boots with the override flag on.
 - Immediate reads are recorded; `ConfigOverride::install()` reports the ones that found nothing to the
-  `on_missing` handler with an empty `configKey` (there is no config key, only a call site).
+  `on_missing` handler with an empty `configKey` (there is no config key, only a call site). Reads that fell
+  back because the module could not be opened are not reported there: that is an availability failure, and it
+  is logged instead.
 
 ### Seeing what is referenced
 

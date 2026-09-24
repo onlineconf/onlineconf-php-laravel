@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel;
 
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Module;
 use Onlineconf\Settings;
 use Onlineconf\Source\ArraySource;
@@ -17,17 +18,37 @@ use Psr\Log\NullLogger;
  *
  * ONLINECONF_CONFIG_OVERRIDE=false, the kill switch of the config() override, also switches this off: the
  * module is then empty, so get* return their defaults and require* throw NotFoundException.
+ *
+ * A file that cannot be opened is remembered, so every read costs one failed open per process and not one
+ * per call; {@see \Onlineconf\Laravel\Facades\Onlineconf} turns that into a fallback for get*.
  */
 final class ImmediateModule
 {
     private static ?Module $module = null;
 
+    private static ?OpenException $failure = null;
+
     /**
      * The module of this process, opened once.
+     *
+     * @throws OpenException when the module file cannot be opened; the failure is remembered and rethrown
      */
     public static function module(): Module
     {
-        return self::$module ??= self::open();
+        if (self::$failure !== null) {
+            throw self::$failure;
+        }
+        if (self::$module !== null) {
+            return self::$module;
+        }
+
+        try {
+            return self::$module = self::open();
+        } catch (OpenException $e) {
+            self::$failure = $e;
+
+            throw $e;
+        }
     }
 
     /**
@@ -36,6 +57,7 @@ final class ImmediateModule
     public static function flush(): void
     {
         self::$module = null;
+        self::$failure = null;
     }
 
     private static function open(): Module

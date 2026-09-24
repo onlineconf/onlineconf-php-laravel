@@ -11,7 +11,9 @@
 - The facade works during `LoadConfiguration`, before the service providers: `Onlineconf::getString()` and the
   other getters read the module of the process environment, for config files that transform the value. The
   reads are recorded (`EagerReads`) and the misses are reported through `on_missing` with an empty
-  `configKey`. `ONLINECONF_CONFIG_OVERRIDE` switches them off as it switches the override off.
+  `configKey`. `ONLINECONF_CONFIG_OVERRIDE` switches them off as it switches the override off. A module file
+  that cannot be opened is not fatal: `get*` fall back to their defaults and the failure is logged once at
+  install, while `require*` throw the client's `OpenException`.
 - `onlineconf:map` command: the derived map (config key, path, type, required, fallback) and the immediate
   reads, as a table or `--json`.
 - `onlineconf.map` is now derived and written back to the configuration; the 1.1 format (`key => path`) keeps

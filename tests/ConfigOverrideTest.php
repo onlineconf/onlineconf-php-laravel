@@ -8,6 +8,10 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use Illuminate\Log\Logger as IlluminateLogger;
+use Illuminate\Log\LogManager;
+use Monolog\Handler\TestHandler;
+use Monolog\Logger;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
@@ -344,5 +348,29 @@ final class ConfigOverrideTest extends TestCase
         ConfigOverride::install($this->application());
 
         self::assertSame([], RecordingHandler::$missing, 'immediate reads were switched off, so they all "missed"');
+    }
+
+    public function testAnUnopenableModuleAtConfigLoadTimeIsLoggedOnce(): void
+    {
+        EagerReads::openFailed('cannot open /etc/onlineconf/TREE.cdb');
+        $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
+        $this->config()->set('onlineconf.log_channel', 'probe');
+        $this->config()->set('onlineconf.on_missing', RecordingHandler::class);
+
+        ConfigOverride::install($this->application());
+        ConfigOverride::install($this->application());
+
+        $logManager = $this->application()->make(LogManager::class);
+        assert($logManager instanceof LogManager);
+        $channel = $logManager->channel('probe');
+        assert($channel instanceof IlluminateLogger);
+        $logger = $channel->getLogger();
+        self::assertInstanceOf(Logger::class, $logger);
+        $handler = $logger->getHandlers()[0] ?? null;
+        self::assertInstanceOf(TestHandler::class, $handler);
+
+        self::assertCount(1, $handler->getRecords(), 'the failure is logged once per process');
+        self::assertTrue($handler->hasErrorThatContains('cannot open /etc/onlineconf/TREE.cdb'));
+        self::assertSame([], RecordingHandler::$missing, 'an unavailable module is not a migration gap');
     }
 }
