@@ -408,7 +408,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertSame($expected, $repository->get('node'));
     }
 
-    public function testDeclaredTypeIgnoresAFallbackOfAnotherType(): void
+    public function testUnparsableTypedNodeKeepsTheRealFallback(): void
     {
         $repository = $this->repository(
             ['node' => 'not an int'],
@@ -416,8 +416,56 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
             ['/node' => 'eight'],
         );
 
-        self::assertSame(0, $repository->get('node'), 'the declared type wins, the unusable fallback becomes 0');
+        self::assertSame('not an int', $repository->get('node'), 'the value from config/*.php, whatever its type');
         self::assertTrue($this->log->hasWarningThatContains('/node'));
+    }
+
+    public function testUnparsableTypedNodeFallsBackToNull(): void
+    {
+        $repository = $this->repository(
+            ['int' => null, 'string' => null],
+            [
+                'int' => ['path' => '/int', 'type' => Ref::TYPE_INT],
+                'string' => ['path' => '/string', 'type' => Ref::TYPE_STRING],
+            ],
+            ['/int' => 'eight', '/string' => ['a']],
+        );
+
+        self::assertNull($repository->get('int'), 'refInt(path, null): a null fallback is a null fallback');
+        self::assertNull($repository->get('string'));
+        self::assertCount(2, $this->log->getRecords());
+        self::assertTrue($this->log->hasWarningThatContains('/int'));
+        self::assertTrue($this->log->hasWarningThatContains('/string'));
+    }
+
+    /**
+     * @return array<string, array{string|array<mixed>, mixed, mixed}>
+     */
+    public static function requiredByFallbackType(): array
+    {
+        return [
+            'bool' => ['1', false, true],
+            'int' => ['25', 25, 25],
+            'float' => ['0.5', 1.0, 0.5],
+            'string' => ['text', 'dflt', 'text'],
+            'array' => [['pool' => 5], [], ['pool' => 5]],
+            'raw' => ['text', null, 'text'],
+        ];
+    }
+
+    /**
+     * @param string|array<mixed> $value
+     */
+    #[DataProvider('requiredByFallbackType')]
+    public function testRequiredEntryWithoutATypeFollowsTheFallbackType(string|array $value, mixed $fallback, mixed $expected): void
+    {
+        $repository = $this->repository(
+            ['node' => $fallback],
+            ['node' => ['path' => '/node', 'required' => true]],
+            ['/node' => $value],
+        );
+
+        self::assertSame($expected, $repository->get('node'));
     }
 
     public function testRequiredNodeThrowsWhenOnlineconfDoesNotHaveIt(): void

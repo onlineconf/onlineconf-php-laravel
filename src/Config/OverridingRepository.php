@@ -7,8 +7,10 @@ namespace Onlineconf\Laravel\Config;
 use Closure;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
+use Onlineconf\Exception\FormatException;
 use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Exception\ParseException;
 use Onlineconf\Laravel\CallSite;
 use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Laravel\Ref;
@@ -20,10 +22,11 @@ use Psr\Log\LoggerInterface;
  * for everything else: unmapped keys, keys OnlineConf does not have, values that do not parse, invalid
  * JSON, a module file that cannot be opened.
  *
- * An entry that declares a type is read with that getter ({@see Ref::TYPES}); an entry without one — the
- * 1.1 map format — is read with the type of the fallback (bool → getBool, int → getInt, …), so callers get
- * the type they got from config/*.php. A required entry is read with require*: the node must exist, and the
- * client's exception reaches the caller instead of a fallback.
+ * An entry that declares a type is read with that type ({@see Ref::TYPES}); an entry without one — the 1.1
+ * map format — is read with the type of the fallback (bool → getBool, int → getInt, …), so callers get the
+ * type they got from config/*.php. Either way the fallback is returned as it is: it is never replaced by an
+ * empty value of the declared type. A required entry must exist: the client's exception reaches the caller
+ * instead of a fallback.
  */
 final class OverridingRepository extends Repository
 {
@@ -185,7 +188,7 @@ final class OverridingRepository extends Repository
         }
         $path = $entry['path'];
         if ($entry['required']) {
-            return self::readRequired($module, $entry['type'], $path);
+            return self::readRequired($module, $entry['type'], $path, $fallback);
         }
         if (!$module->has($path)) {
             $this->reportMissing($key, $path, $fallback, $module);
@@ -196,7 +199,7 @@ final class OverridingRepository extends Repository
         try {
             return $entry['type'] === null
                 ? self::readByFallback($module, $path, $fallback)
-                : self::readTyped($module, $entry['type'], $path, $fallback);
+                : $this->readTyped($module, $entry['type'], $path, $fallback);
         } catch (InvalidJsonException $e) {
             $this->logger->error(sprintf(
                 'OnlineConf value at %s is not valid JSON, config() falls back to the loaded configuration: %s',
@@ -224,30 +227,29 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The declared type wins over the fallback: a fallback of another type is replaced by the empty value of
-     * the declared type, which the client uses only when the node does not parse.
+     * The node read with the declared type. The client's require* is used, because a get* would need a default
+     * of that very type and the fallback from config/*.php may be of any type — including null. A value that
+     * does not parse as the declared type is a warning (in the client's own wording) and the real fallback.
      *
      * @throws InvalidJsonException
      */
-    private static function readTyped(Module $module, string $type, string $path, mixed $fallback): mixed
+    private function readTyped(Module $module, string $type, string $path, mixed $fallback): mixed
     {
-        return match ($type) {
-            Ref::TYPE_STRING => $module->getString($path, is_string($fallback) ? $fallback : ''),
-            Ref::TYPE_INT => $module->getInt($path, is_int($fallback) ? $fallback : 0),
-            Ref::TYPE_FLOAT => $module->getFloat($path, is_float($fallback) ? $fallback : 0.0),
-            Ref::TYPE_BOOL => $module->getBool($path, (bool) $fallback),
-            Ref::TYPE_DURATION => $module->getDuration($path, is_float($fallback) ? $fallback : 0.0),
-            Ref::TYPE_DURATION_MS => $module->getDurationMs($path, is_int($fallback) ? $fallback : 0),
-            Ref::TYPE_STRINGS => $module->getStrings($path, self::stringList($fallback)),
-            Ref::TYPE_ARRAY => $module->getArray($path, is_array($fallback) ? $fallback : []),
-            default => $module->get($path, $fallback),
-        };
+        try {
+            return self::readRequired($module, $type, $path, $fallback);
+        } catch (FormatException|ParseException $e) {
+            $this->logger->warning('onlineconf: ' . $e->getMessage());
+
+            return $fallback;
+        }
     }
 
     /**
+     * An entry with no declared type — the 1.1 map format — follows the type of the fallback here too.
+     *
      * @throws \Onlineconf\Exception\OnlineconfException
      */
-    private static function readRequired(Module $module, ?string $type, string $path): mixed
+    private static function readRequired(Module $module, ?string $type, string $path, mixed $fallback): mixed
     {
         return match ($type) {
             Ref::TYPE_STRING => $module->requireString($path),
@@ -258,16 +260,24 @@ final class OverridingRepository extends Repository
             Ref::TYPE_DURATION_MS => $module->requireDurationMs($path),
             Ref::TYPE_STRINGS => $module->requireStrings($path),
             Ref::TYPE_ARRAY => $module->requireArray($path),
-            default => $module->require($path),
+            Ref::TYPE_RAW => $module->require($path),
+            default => self::requireByFallback($module, $path, $fallback),
         };
     }
 
     /**
-     * @return list<string>
+     * @throws \Onlineconf\Exception\OnlineconfException
      */
-    private static function stringList(mixed $fallback): array
+    private static function requireByFallback(Module $module, string $path, mixed $fallback): mixed
     {
-        return is_array($fallback) ? array_values(array_filter($fallback, 'is_string')) : [];
+        return match (true) {
+            is_bool($fallback) => $module->requireBool($path),
+            is_int($fallback) => $module->requireInt($path),
+            is_float($fallback) => $module->requireFloat($path),
+            is_string($fallback) => $module->requireString($path),
+            is_array($fallback) => $module->requireArray($path),
+            default => $module->require($path),
+        };
     }
 
     private function reportMissing(string $key, string $path, mixed $fallback, Module $module): void
