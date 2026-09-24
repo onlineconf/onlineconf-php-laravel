@@ -23,15 +23,19 @@ The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application read
 
 ### Changed
 
-- `config('onlineconf.map')` is output, not input: `install()` writes the derived map there for the tooling.
+- `config('onlineconf.map')` is output, not input: `install()` writes the derived map there for the tooling,
+  and a boot from `config:cache` — where the markers are already resolved — installs the override from it.
+  A second `install()` changes nothing.
 - Markers are replaced in the configuration even when there is nothing to override, so `config()` never hands
   a `Ref` object to the application.
 - A facade call before the service provider is registered no longer throws "A facade root has not been set":
   it goes to the immediate module resolved from the process environment.
-- A module file that cannot be opened is a normal state, not a failure: the lazy override notes it once at
-  `debug` level and serves the values from `config/*.php` for the rest of the process, without trying to open
-  it again; immediate `get*` return their defaults silently, while `require*` throw the client's
-  `OpenException`. An application on a machine with no OnlineConf at all runs on `config/*.php` alone.
+- A module file that cannot be opened is a normal state, not a failure: the module manager remembers the
+  failed open for the life of the process (the container under Octane), notes it once at `debug` level and
+  rethrows it instead of reopening; `fake()` replaces it. Lazy markers then serve the values from
+  `config/*.php` and immediate `get*` return their defaults, silently; `requireRef*()` markers and immediate
+  `require*` throw the client's `OpenException`. An application on a machine with no OnlineConf at all runs on
+  `config/*.php` alone, as long as it declares no required node.
 - An absent node is a silent fallback: the value in `config/*.php` is the default, and the tree holds only
   what must differ from it.
 

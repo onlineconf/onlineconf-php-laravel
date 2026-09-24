@@ -120,6 +120,11 @@ Paths are always full paths. There is no application prefix; use `subtree()` whe
   itself; the package adds no hooks.
 - Opening the module file happens on the first use (first injection of `Module`, first facade call),
   not at boot. A missing or invalid file throws the client's `OpenException` at that point.
+- **A failed open is remembered for the life of the process** (under Octane, of the application
+  container): it is noted once at `debug` level and every later use rethrows it without touching the disk.
+  A worker that started before the module file existed therefore serves the fallbacks of `config/*.php`
+  until it restarts — start workers after the tree is delivered, or restart them once it is. `fake()`
+  replaces a remembered failure.
 
 ## Testing your application
 
@@ -160,8 +165,8 @@ also feeds the `config()` override below, so `config('services.mailer.host')` re
 
 ## Overriding config() values
 
-To migrate settings from `.env` to OnlineConf without touching the code that calls `config()`, map config
-keys to OnlineConf paths and install the override in `bootstrap/app.php`.
+To migrate settings from `.env` to OnlineConf without touching the code that calls `config()`, wrap their
+values in `config/*.php` in markers and install the override in `bootstrap/app.php`.
 
 Laravel 10:
 
@@ -212,7 +217,9 @@ wins over the map.
   `['path' => ..., 'type' => ..., 'required' => bool]` per config key — and is what `onlineconf:map` prints.
   It is output, not input: writing that key by hand changes nothing.
 - Migrate one key at a time by turning `env(...)` into a marker around it.
-- `config:cache` is supported: the override works on top of the cached array.
+- `config:cache` is supported. The caching run boots the application, override included, so the cache holds
+  the fallbacks and the derived map; the cached boot installs the override from that map, and the marked
+  keys keep reading OnlineConf.
 - Reads are lazy, so long-running workers see a changed value on the next `config()` call. Services that read
   their settings once in a constructor keep them, as with any Laravel configuration.
 - `set()` at runtime unmaps the written key, everything below it and everything above it: an explicit write
@@ -228,7 +235,7 @@ wins over the map.
 
 ## Naming nodes in config/*.php
 
-Instead of the central map, a node can be named where the value lives. Two mechanisms, one selection rule:
+A node is named where the value lives, in one of two ways, and one rule says which:
 
 - **`getRef*()` / `requireRef*()` — a lazy reference.** The value stays in the configuration as a marker;
   `ConfigOverride::install()` replaces it with the fallback and adds it to the map, so every `config()` call
@@ -287,9 +294,10 @@ from the environment.
 **Required nodes.** `requireRefString('/my/app/secret')` and its siblings take no fallback: the node must
 exist, and the override calls the client's `require*`, so `NotFoundException` (or `FormatException`,
 `ParseException`) reaches the caller instead of a silent fallback. `getRefString('/my/app/secret', null)` is
-the other case — a node that may be absent, with `null` as its fallback. Use `requireRef*()` only where the
-application genuinely cannot run on a default: a machine with no module file gets the fallback `null` there,
-because no module at all is a different thing from a tree that lacks the node.
+the other case — a node that may be absent, with `null` as its fallback. A required node also needs a module:
+with no module file the client's `OpenException` reaches the caller, just as the immediate `require*` throws
+it. Use `requireRef*()` only where the application genuinely cannot run on a default, because a developer
+machine without OnlineConf cannot run that code path either.
 
 The exception also surfaces on an ancestor read: `config('database')` reads every marked key below it, so a
 missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
@@ -337,7 +345,8 @@ What does get said out loud:
 - a value that is not the JSON it claims to be — `error`;
 - no module file at all — one `debug` line per process, then silence;
 - a node a `requireRef*()` marker declares and OnlineConf does not have — the client's `NotFoundException`,
-  thrown at the `config()` call, because that node was declared as one that must exist.
+  thrown at the `config()` call, because that node was declared as one that must exist; with no module file
+  at all, the client's `OpenException` instead.
 
 ## Artisan
 

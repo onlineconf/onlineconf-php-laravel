@@ -27,7 +27,7 @@ final class Ref
     public const TYPE_ARRAY = 'array';
     public const TYPE_RAW = 'raw';
 
-    /** @var list<string> every type a marker, and an explicit map entry, may declare */
+    /** @var list<string> every type a marker may declare */
     public const TYPES = [
         self::TYPE_STRING,
         self::TYPE_INT,
