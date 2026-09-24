@@ -1,0 +1,56 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Onlineconf\Laravel;
+
+/**
+ * Process-wide registry of the reads the facade served before the service provider registered — the
+ * immediate mode, used by config/*.php that calls Onlineconf::getString() instead of env().
+ *
+ * The registry lives as long as the process: {@see ConfigOverride::install()} reports the misses to the
+ * on_missing handler, and "php artisan onlineconf:map" lists everything that was read.
+ */
+final class EagerReads
+{
+    /** @var list<EagerRead> */
+    private static array $reads = [];
+
+    private static int $reported = 0;
+
+    public static function record(string $path, string $type, mixed $default, bool $missing, string $module): void
+    {
+        self::$reads[] = new EagerRead($path, $type, $default, $missing, $module, CallSite::frames());
+    }
+
+    /**
+     * @return list<EagerRead>
+     */
+    public static function all(): array
+    {
+        return self::$reads;
+    }
+
+    /**
+     * The reads nobody has been told about yet; they count as reported afterwards, so a second install()
+     * in the same process does not report them twice.
+     *
+     * @return list<EagerRead>
+     */
+    public static function unreported(): array
+    {
+        $unreported = array_slice(self::$reads, self::$reported);
+        self::$reported = count(self::$reads);
+
+        return $unreported;
+    }
+
+    /**
+     * Forgets everything; for tests.
+     */
+    public static function flush(): void
+    {
+        self::$reads = [];
+        self::$reported = 0;
+    }
+}

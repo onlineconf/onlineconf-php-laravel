@@ -6,11 +6,15 @@ namespace Onlineconf\Laravel\Tests;
 
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\MissingValue;
+use Onlineconf\Laravel\Ref;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class OverridingRepositoryTest extends PHPUnitTestCase
@@ -69,14 +73,14 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
 
     /**
      * @param array<string, mixed>  $items
-     * @param array<string, string> $map
+     * @param array<string, mixed>  $map           in the old "key => path" format or as normalised entries
      * @param array<string, string|int|float|bool|array<mixed>|null> $values
      */
     private function repository(array $items = self::ITEMS, array $map = self::MAP, array $values = self::VALUES, ?\Closure $onMissing = null): OverridingRepository
     {
         $module = new Module(ArraySource::fromValues($values), $this->logger, 0);
 
-        return new OverridingRepository($items, $map, static fn (): Module => $module, $this->logger, $onMissing);
+        return new OverridingRepository($items, MapEntry::normalize($map), static fn (): Module => $module, $this->logger, $onMissing);
     }
 
     /**
@@ -228,7 +232,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
     public function testInvalidJsonFallsBackAndLogsAnError(): void
     {
         $module = new Module(new ArraySource(['/app/hosts' => 'j{not json']), $this->logger, 0);
-        $repository = new OverridingRepository(self::ITEMS, self::MAP, static fn (): Module => $module, $this->logger);
+        $repository = new OverridingRepository(self::ITEMS, MapEntry::normalize(self::MAP), static fn (): Module => $module, $this->logger);
 
         self::assertSame(['a.example.com'], $repository->get('app.hosts'));
         self::assertTrue($this->log->hasErrorThatContains('/app/hosts'));
@@ -265,7 +269,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
 
             return $module;
         };
-        $repository = new OverridingRepository(self::ITEMS, self::MAP, $factory, $this->logger);
+        $repository = new OverridingRepository(self::ITEMS, MapEntry::normalize(self::MAP), $factory, $this->logger);
 
         self::assertSame('From config', $repository->get('app.name'));
         self::assertSame('From config', $repository->get('app.name'));
@@ -328,7 +332,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         $reported = [];
         $repository = new OverridingRepository(
             self::ITEMS,
-            self::MAP,
+            MapEntry::normalize(self::MAP),
             static fn (): Module => throw new OpenException('gone'),
             $this->logger,
             $this->recording($reported),
@@ -356,5 +360,107 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertNull($missing->file);
         self::assertNull($missing->line);
         self::assertSame([], $missing->trace);
+    }
+
+    /**
+     * type, the raw OnlineConf value, the fallback in config/*.php, the expected result.
+     *
+     * @return array<string, array{string, string|array<mixed>, mixed, mixed}>
+     */
+    public static function typedNodes(): array
+    {
+        return [
+            'string' => [Ref::TYPE_STRING, 'text', 'dflt', 'text'],
+            'int' => [Ref::TYPE_INT, '42', 1, 42],
+            'float' => [Ref::TYPE_FLOAT, '0.25', 1.0, 0.25],
+            'bool' => [Ref::TYPE_BOOL, '1', false, true],
+            'duration' => [Ref::TYPE_DURATION, '1m', 1.0, 60.0],
+            'duration_ms' => [Ref::TYPE_DURATION_MS, '1.5s', 1, 1500],
+            'strings' => [Ref::TYPE_STRINGS, 'a, b', ['x'], ['a', 'b']],
+            'array' => [Ref::TYPE_ARRAY, ['pool' => 5], [], ['pool' => 5]],
+            'raw' => [Ref::TYPE_RAW, 'text', null, 'text'],
+        ];
+    }
+
+    /**
+     * @param string|array<mixed> $value
+     */
+    #[DataProvider('typedNodes')]
+    public function testDeclaredTypePicksTheGetter(string $type, string|array $value, mixed $fallback, mixed $expected): void
+    {
+        $repository = $this->repository(['node' => $fallback], ['node' => ['path' => '/node', 'type' => $type]], ['/node' => $value]);
+
+        self::assertSame($expected, $repository->get('node'));
+    }
+
+    /**
+     * @param string|array<mixed> $value
+     */
+    #[DataProvider('typedNodes')]
+    public function testRequiredNodePicksTheRequireGetter(string $type, string|array $value, mixed $fallback, mixed $expected): void
+    {
+        $repository = $this->repository(
+            ['node' => $fallback],
+            ['node' => ['path' => '/node', 'type' => $type, 'required' => true]],
+            ['/node' => $value],
+        );
+
+        self::assertSame($expected, $repository->get('node'));
+    }
+
+    public function testDeclaredTypeIgnoresAFallbackOfAnotherType(): void
+    {
+        $repository = $this->repository(
+            ['node' => 'not an int'],
+            ['node' => ['path' => '/node', 'type' => Ref::TYPE_INT]],
+            ['/node' => 'eight'],
+        );
+
+        self::assertSame(0, $repository->get('node'), 'the declared type wins, the unusable fallback becomes 0');
+        self::assertTrue($this->log->hasWarningThatContains('/node'));
+    }
+
+    public function testRequiredNodeThrowsWhenOnlineconfDoesNotHaveIt(): void
+    {
+        $reported = [];
+        $repository = $this->repository(
+            ['node' => 'dflt'],
+            ['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'required' => true]],
+            [],
+            $this->recording($reported),
+        );
+
+        try {
+            $repository->get('node');
+            self::fail('a required node must not fall back');
+        } catch (NotFoundException $e) {
+            self::assertStringContainsString('/node', $e->getMessage());
+        }
+        self::assertSame([], $reported, 'a required node is a configuration error, not a migration gap');
+    }
+
+    public function testRequiredNodeFallsBackWhenTheModuleCannotBeOpened(): void
+    {
+        $repository = new OverridingRepository(
+            ['node' => 'dflt'],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'required' => true]]),
+            static fn (): Module => throw new OpenException('gone'),
+            $this->logger,
+        );
+
+        self::assertSame('dflt', $repository->get('node'), 'an unavailable module is a logged failure, as for any other key');
+    }
+
+    public function testMapExposesTheNormalisedEntries(): void
+    {
+        $repository = $this->repository(['node' => 1], ['node' => '/node', 'typed' => ['path' => '/typed', 'type' => Ref::TYPE_INT, 'required' => true]]);
+
+        self::assertSame(
+            [
+                'node' => ['path' => '/node', 'type' => null, 'required' => false],
+                'typed' => ['path' => '/typed', 'type' => Ref::TYPE_INT, 'required' => true],
+            ],
+            $repository->map(),
+        );
     }
 }

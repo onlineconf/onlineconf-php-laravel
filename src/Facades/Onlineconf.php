@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Facades;
 
 use Illuminate\Support\Facades\Facade;
+use Onlineconf\Laravel\EagerReads;
+use Onlineconf\Laravel\ImmediateModule;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Module;
@@ -46,9 +48,70 @@ use Onlineconf\Subtree;
  */
 final class Onlineconf extends Facade
 {
+    /** @var array<string, string> read method → the type it declares; everything else is not a node read */
+    private const READS = [
+        'get' => Ref::TYPE_RAW,
+        'getString' => Ref::TYPE_STRING,
+        'getInt' => Ref::TYPE_INT,
+        'getFloat' => Ref::TYPE_FLOAT,
+        'getBool' => Ref::TYPE_BOOL,
+        'getDuration' => Ref::TYPE_DURATION,
+        'getDurationMs' => Ref::TYPE_DURATION_MS,
+        'getStrings' => Ref::TYPE_STRINGS,
+        'getArray' => Ref::TYPE_ARRAY,
+        'require' => Ref::TYPE_RAW,
+        'requireString' => Ref::TYPE_STRING,
+        'requireInt' => Ref::TYPE_INT,
+        'requireFloat' => Ref::TYPE_FLOAT,
+        'requireBool' => Ref::TYPE_BOOL,
+        'requireDuration' => Ref::TYPE_DURATION,
+        'requireDurationMs' => Ref::TYPE_DURATION_MS,
+        'requireStrings' => Ref::TYPE_STRINGS,
+        'requireArray' => Ref::TYPE_ARRAY,
+    ];
+
     protected static function getFacadeAccessor(): string
     {
         return Module::class;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Until the service provider binds {@see Module}, which happens after config/*.php is loaded, the call
+     * goes to the process-wide {@see ImmediateModule} and is recorded in {@see EagerReads}. That is what
+     * makes Onlineconf::getString() usable in config/*.php in place of env().
+     *
+     * @param string       $method
+     * @param array<mixed> $args
+     */
+    public static function __callStatic($method, $args): mixed
+    {
+        $app = static::getFacadeApplication();
+        if ($app !== null && $app->bound(Module::class)) {
+            return parent::__callStatic($method, $args);
+        }
+
+        return self::immediate($method, $args);
+    }
+
+    /**
+     * @param array<mixed> $args
+     */
+    private static function immediate(string $method, array $args): mixed
+    {
+        $module = ImmediateModule::module();
+        $type = self::READS[$method] ?? null;
+        $path = $args[0] ?? null;
+        if ($type !== null && is_string($path)) {
+            $default = str_starts_with($method, 'require') ? null : ($args[1] ?? null);
+            EagerReads::record($path, $type, $default, !$module->has($path), $module->name());
+        }
+
+        /** @var callable $callable */
+        $callable = [$module, $method];
+
+        return $callable(...$args);
     }
 
     /**
