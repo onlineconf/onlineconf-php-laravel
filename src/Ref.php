@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel;
 
+use LogicException;
+
 /**
  * A reference to an OnlineConf node, written in config/*.php in place of the value:
  *
@@ -50,6 +52,20 @@ final class Ref
         public readonly mixed $fallback = null,
         public readonly bool $required = false,
     ) {
+    }
+
+    /**
+     * A marker is not a value: PHP would turn it into "1" or true and the mistake would be invisible. This
+     * is the case for Onlineconf::get*(), which reads the node right away and hands over a plain value.
+     *
+     * @throws LogicException always
+     */
+    public function __toString(): string
+    {
+        throw new LogicException(sprintf(
+            'Onlineconf::ref*() marker for %s used as a value; use Onlineconf::get*() when the config transforms the value',
+            $this->path,
+        ));
     }
 
     /**

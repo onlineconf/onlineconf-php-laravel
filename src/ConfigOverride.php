@@ -48,6 +48,17 @@ final class ConfigOverride
      */
     public static function install(ApplicationContract $app): void
     {
+        try {
+            self::apply($app);
+        } finally {
+            // The configuration is loaded: the module opened for it has nothing left to serve, and a worker
+            // should not keep its dba handle for the life of the process.
+            ImmediateModule::flush();
+        }
+    }
+
+    private static function apply(ApplicationContract $app): void
+    {
         $config = $app->make(Repository::class);
         assert($config instanceof Repository);
         $items = $config->all();
@@ -160,7 +171,7 @@ final class ConfigOverride
                 'OnlineConf is unavailable, the reads in config/*.php fell back to their defaults: ' . $openError,
             );
         }
-        foreach (EagerReads::unreported() as $read) {
+        foreach (EagerReads::rotate() as $read) {
             if ($onMissing !== null && $read->missing) {
                 $onMissing(new MissingValue('', $read->path, $read->default, $read->module, $read->trace));
             }

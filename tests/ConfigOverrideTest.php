@@ -412,4 +412,17 @@ final class ConfigOverrideTest extends TestCase
 
         return $handler;
     }
+
+    public function testOnlyTheReadsOfTheCurrentConfigLoadAreKept(): void
+    {
+        EagerReads::record('/app/first', Ref::TYPE_STRING, null, false, 'TREE');
+        ConfigOverride::install($this->application());
+        EagerReads::record('/app/second', Ref::TYPE_STRING, null, false, 'TREE');
+
+        ConfigOverride::install($this->application());
+
+        $reads = EagerReads::all();
+        self::assertCount(1, $reads, 'a process that boots many applications does not grow a list of reads');
+        self::assertSame('/app/second', $reads[0]->path);
+    }
 }

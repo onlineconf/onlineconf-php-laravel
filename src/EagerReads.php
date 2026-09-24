@@ -36,14 +36,18 @@ final class EagerReads
     }
 
     /**
-     * The reads nobody has been told about yet; they count as reported afterwards, so a second install()
-     * in the same process does not report them twice.
+     * The reads nobody has been told about yet; they count as reported afterwards, so a second install() in
+     * the same process does not report them twice. The registry is trimmed to that batch: a test suite that
+     * boots one application per test would otherwise collect the reads of every boot.
      *
      * @return list<EagerRead>
      */
-    public static function unreported(): array
+    public static function rotate(): array
     {
         $unreported = array_slice(self::$reads, self::$reported);
+        if ($unreported !== []) {
+            self::$reads = $unreported;
+        }
         self::$reported = count(self::$reads);
 
         return $unreported;

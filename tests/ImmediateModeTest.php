@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Facade;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ImmediateModule;
@@ -158,5 +159,35 @@ final class ImmediateModeTest extends TestCase
 
         $this->expectException(OpenException::class);
         Onlineconf::name();
+    }
+
+    public function testNamedArgumentsAreRecordedToo(): void
+    {
+        $this->beforeProviders();
+
+        self::assertSame('From OnlineConf', Onlineconf::getString(path: '/app/name', default: 'dflt'));
+
+        $reads = EagerReads::all();
+        self::assertCount(1, $reads);
+        self::assertSame('/app/name', $reads[0]->path);
+        self::assertSame('dflt', $reads[0]->default);
+    }
+
+    public function testTheFacadeWorksWithoutAnApplication(): void
+    {
+        $this->beforeProviders();
+        Facade::setFacadeApplication(null);
+
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'), 'no container, no problem');
+    }
+
+    public function testInstallReleasesTheModuleOfTheConfigLoad(): void
+    {
+        $this->beforeProviders();
+        $before = ImmediateModule::module();
+
+        ConfigOverride::install($this->application());
+
+        self::assertNotSame($before, ImmediateModule::module(), 'the handle of the config load is not kept open');
     }
 }

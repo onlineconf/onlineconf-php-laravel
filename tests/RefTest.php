@@ -95,4 +95,14 @@ final class RefTest extends PHPUnitTestCase
         self::assertSame($fallback, $ref->fallback);
         self::assertFalse($ref->required);
     }
+
+    public function testUsingAMarkerAsAValueFails(): void
+    {
+        $ref = Onlineconf::refBool('/a/debug', false);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Onlineconf::ref*() marker for /a/debug used as a value');
+        // A cast is exactly the case ref*() cannot serve: (bool) on any object is true, (int) is 1.
+        self::assertNotSame('', (string) $ref);
+    }
 }
