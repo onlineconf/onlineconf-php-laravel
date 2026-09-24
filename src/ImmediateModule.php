@@ -7,7 +7,6 @@ namespace Onlineconf\Laravel;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Module;
 use Onlineconf\Settings;
-use Onlineconf\Source\CdbSource;
 use Psr\Log\NullLogger;
 
 /**
@@ -62,6 +61,6 @@ final class ImmediateModule
         $logger = new NullLogger();
         $settings = Settings::resolve(getenv(), null, null, $logger);
 
-        return new Module(new CdbSource($settings->fileName($settings->module)), $logger, Module::DEFAULT_CHECK_INTERVAL);
+        return new Module(ModuleManager::open($settings->fileName($settings->module)), $logger, Module::DEFAULT_CHECK_INTERVAL);
     }
 }

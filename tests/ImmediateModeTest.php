@@ -182,4 +182,23 @@ final class ImmediateModeTest extends TestCase
 
         self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'one failed open per configuration load');
     }
+
+    public function testNoModuleRaisesNoPhpWarning(): void
+    {
+        $this->beforeProviders(withModule: false);
+        $errors = [];
+        set_error_handler(static function (int $level, string $message) use (&$errors): bool {
+            $errors[] = $message; // @-suppressed ones too: Collision reports those in the application's tests
+
+            return true;
+        });
+        try {
+            $value = Onlineconf::getString('/app/name', 'dflt');
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame('dflt', $value);
+        self::assertSame([], $errors, 'every test that boots the application would report it otherwise');
+    }
 }

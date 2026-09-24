@@ -124,7 +124,8 @@ Paths are always full paths. There is no application prefix; use `subtree()` whe
   container): it is noted once at `debug` level and every later use rethrows it without touching the disk.
   A worker that started before the module file existed therefore serves the fallbacks of `config/*.php`
   until it restarts — start workers after the tree is delivered, or restart them once it is. `fake()`
-  replaces a remembered failure.
+  replaces a remembered failure. A file that is simply not there raises no PHP warning, not even a
+  suppressed one, so test runners that report those (Collision) stay quiet on a machine without OnlineConf.
 
 ## Testing your application
 

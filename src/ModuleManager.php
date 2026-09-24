@@ -51,7 +51,7 @@ final class ModuleManager
         }
 
         try {
-            return $this->modules[$key] = new Module(new CdbSource($key), $this->logger, $this->checkInterval);
+            return $this->modules[$key] = new Module(self::open($key), $this->logger, $this->checkInterval);
         } catch (OpenException $e) {
             $this->failures[$key] = $e;
             $this->logger->debug(sprintf(
@@ -84,6 +84,22 @@ final class ModuleManager
         $this->modules[$key] = new Module($source, $this->logger, 0);
 
         return $source;
+    }
+
+    /**
+     * The client's CDB source for an existing file. A file that is not there is reported here, before the
+     * client's @fopen() runs: a suppressed warning is still a warning to error handlers such as Collision's,
+     * and a machine without OnlineConf would raise one in every test that boots the application.
+     *
+     * @throws OpenException when the file does not exist or the client cannot open it
+     */
+    public static function open(string $file): CdbSource
+    {
+        if (!is_file($file)) {
+            throw new OpenException($file . ': no such file');
+        }
+
+        return new CdbSource($file);
     }
 
     /**

@@ -152,4 +152,24 @@ final class ModuleManagerTest extends TestCase
 
         self::assertSame('fake', $manager->module()->getString('/app/name', ''));
     }
+
+    public function testAMissingFileRaisesNoPhpWarning(): void
+    {
+        $errors = [];
+        set_error_handler(static function (int $level, string $message) use (&$errors): bool {
+            $errors[] = $message; // @-suppressed ones too: Collision reports those in the application's tests
+
+            return true;
+        });
+        try {
+            $this->manager()->module();
+            self::fail('there is no module file');
+        } catch (OpenException $e) {
+            self::assertStringContainsString('TREE.cdb: no such file', $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame([], $errors);
+    }
 }

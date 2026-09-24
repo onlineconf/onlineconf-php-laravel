@@ -35,7 +35,8 @@ The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application read
   rethrows it instead of reopening; `fake()` replaces it. Lazy markers then serve the values from
   `config/*.php` and immediate `get*` return their defaults, silently; `requireRef*()` markers and immediate
   `require*` throw the client's `OpenException`. An application on a machine with no OnlineConf at all runs on
-  `config/*.php` alone, as long as it declares no required node.
+  `config/*.php` alone, as long as it declares no required node, and without a single PHP warning: a file that
+  does not exist is reported before the client's `fopen()` is reached.
 - An absent node is a silent fallback: the value in `config/*.php` is the default, and the tree holds only
   what must differ from it.
 
