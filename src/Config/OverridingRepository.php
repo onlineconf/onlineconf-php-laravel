@@ -12,49 +12,39 @@ use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Exception\ParseException;
-use Onlineconf\Laravel\CallSite;
-use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Module;
 use Psr\Log\LoggerInterface;
 
 /**
- * Config repository that reads mapped keys from OnlineConf and falls back to the loaded configuration
- * for everything else: unmapped keys, keys OnlineConf does not have, values that do not parse, invalid
- * JSON, a module file that cannot be opened.
+ * Config repository that reads the nodes the {@see Ref} markers declare and falls back to the loaded
+ * configuration for everything else: unmapped keys, nodes OnlineConf does not have, values that do not parse
+ * and a module file that cannot be opened.
  *
- * An entry that declares a type is read with that type ({@see Ref::TYPES}); an entry without one — the 1.1
- * map format — is read with the type of the fallback (bool → getBool, int → getInt, …), so callers get the
- * type they got from config/*.php. Either way the fallback is returned as it is: it is never replaced by an
- * empty value of the declared type. A required entry must exist: the client's exception reaches the caller
- * instead of a fallback.
+ * Each node is read with the type its marker declares ({@see Ref::TYPES}); the fallback is returned as it is
+ * and is never replaced by an empty value of that type. A required marker must find its node: the client's
+ * exception reaches the caller instead of a fallback.
  */
 final class OverridingRepository extends Repository
 {
-    /** @var array<string, array{path: string, type: string|null, required: bool}> config key → node */
+    /** @var array<string, array{path: string, type: string, required: bool}> config key → node */
     private array $map;
 
     /** @var array<string, list<string>> config key → mapped keys below it ("services" → ["services.mailer.host", …]) */
     private array $below = [];
 
-    private bool $openErrorLogged = false;
-
-    /** @var array<string, true> config keys already handed to the on_missing handler */
-    private array $reported = [];
+    private bool $unavailable = false;
 
     /**
-     * @param array<mixed>                      $items         the loaded configuration
-     * @param array<string, array{path: string, type: string|null, required: bool}> $map config key → node,
-     *                                                         as {@see MapEntry::normalize()} produces it
-     * @param Closure(): Module                 $moduleFactory returns the module to read from; called on every mapped read
-     * @param Closure(MissingValue): void|null  $onMissing     called once per config key and process when a mapped key is absent from OnlineConf
+     * @param array<mixed>                                                    $items         the loaded configuration
+     * @param array<string, array{path: string, type: string, required: bool}> $map          config key → node
+     * @param Closure(): Module                                               $moduleFactory returns the module to read from; called on every mapped read
      */
     public function __construct(
         array $items,
         array $map,
         private readonly Closure $moduleFactory,
         private readonly LoggerInterface $logger,
-        private readonly ?Closure $onMissing = null,
     ) {
         parent::__construct($items);
         $this->map = $map;
@@ -72,12 +62,12 @@ final class OverridingRepository extends Repository
 
         $value = parent::get($key, $default);
         if (isset($this->map[$key])) {
-            return $this->override($key, $this->map[$key], $value);
+            return $this->override($this->map[$key], $value);
         }
         if (isset($this->below[$key]) && is_array($value)) {
             foreach ($this->below[$key] as $mapped) {
                 $sub = substr($mapped, strlen($key) + 1);
-                $override = $this->override($mapped, $this->map[$mapped], Arr::get($value, $sub));
+                $override = $this->override($this->map[$mapped], Arr::get($value, $sub));
                 // No phantom keys: a descendant that is neither in the configuration nor in OnlineConf stays absent.
                 if ($override !== null || Arr::has($value, $sub)) {
                     Arr::set($value, $sub, $override);
@@ -121,7 +111,7 @@ final class OverridingRepository extends Repository
     /**
      * The map the override reads, for tooling ({@see \Onlineconf\Laravel\Console\MapCommand}).
      *
-     * @return array<string, array{path: string, type: string|null, required: bool}>
+     * @return array<string, array{path: string, type: string, required: bool}>
      */
     public function map(): array
     {
@@ -175,13 +165,14 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The OnlineConf value read with the declared type, or with the type of the fallback when the entry
-     * declares none; the fallback on any failure the client reports and when the key is absent (reported to
-     * the on_missing handler). A required entry reads with require*, so the client's exceptions propagate.
+     * The node read with the type its marker declares. A node the tree does not have is the normal state —
+     * the value from config/*.php is the default — so it is a silent fallback; a value that does not parse
+     * is a warning in the client's own wording, and also a fallback. A required marker gets neither: its
+     * exceptions reach the caller.
      *
-     * @param array{path: string, type: string|null, required: bool} $entry
+     * @param array{path: string, type: string, required: bool} $entry
      */
-    private function override(string $key, array $entry, mixed $fallback): mixed
+    private function override(array $entry, mixed $fallback): mixed
     {
         $module = $this->module();
         if ($module === null) {
@@ -189,22 +180,15 @@ final class OverridingRepository extends Repository
         }
         $path = $entry['path'];
         if ($entry['required']) {
-            return self::readRequired($module, $entry['type'], $path, $fallback);
-        }
-        if (!$module->has($path)) {
-            $this->reportMissing($key, $path, $fallback, $module);
-
-            return $fallback;
+            return self::read($module, $entry['type'], $path);
         }
 
         try {
-            return $entry['type'] === null
-                ? self::readByFallback($module, $path, $fallback)
-                : $this->readTyped($module, $entry['type'], $path, $fallback);
+            return self::read($module, $entry['type'], $path);
         } catch (NotFoundException) {
-            // has() and the read each check the file for updates, so the node can be gone by now; for an
-            // optional key that is a miss like any other, not an exception.
-            $this->reportMissing($key, $path, $fallback, $module);
+            return $fallback;
+        } catch (FormatException|ParseException $e) {
+            $this->logger->warning('onlineconf: ' . $e->getMessage());
 
             return $fallback;
         } catch (InvalidJsonException $e) {
@@ -219,44 +203,12 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * @throws InvalidJsonException
-     */
-    private static function readByFallback(Module $module, string $path, mixed $fallback): mixed
-    {
-        return match (true) {
-            is_bool($fallback) => $module->getBool($path, $fallback),
-            is_int($fallback) => $module->getInt($path, $fallback),
-            is_float($fallback) => $module->getFloat($path, $fallback),
-            is_string($fallback) => $module->getString($path, $fallback),
-            is_array($fallback) => $module->getArray($path, $fallback),
-            default => $module->get($path, $fallback),
-        };
-    }
-
-    /**
-     * The node read with the declared type. The client's require* is used, because a get* would need a default
-     * of that very type and the fallback from config/*.php may be of any type — including null. A value that
-     * does not parse as the declared type is a warning (in the client's own wording) and the real fallback.
-     *
-     * @throws InvalidJsonException|NotFoundException when the node vanished since the caller checked
-     */
-    private function readTyped(Module $module, string $type, string $path, mixed $fallback): mixed
-    {
-        try {
-            return self::readRequired($module, $type, $path, $fallback);
-        } catch (FormatException|ParseException $e) {
-            $this->logger->warning('onlineconf: ' . $e->getMessage());
-
-            return $fallback;
-        }
-    }
-
-    /**
-     * An entry with no declared type — the 1.1 map format — follows the type of the fallback here too.
+     * The client's require* for the declared type: a get* would need a default of that very type, and the
+     * fallback from config/*.php may be of any type — including null.
      *
      * @throws \Onlineconf\Exception\OnlineconfException
      */
-    private static function readRequired(Module $module, ?string $type, string $path, mixed $fallback): mixed
+    private static function read(Module $module, string $type, string $path): mixed
     {
         return match ($type) {
             Ref::TYPE_STRING => $module->requireString($path),
@@ -267,52 +219,28 @@ final class OverridingRepository extends Repository
             Ref::TYPE_DURATION_MS => $module->requireDurationMs($path),
             Ref::TYPE_STRINGS => $module->requireStrings($path),
             Ref::TYPE_ARRAY => $module->requireArray($path),
-            Ref::TYPE_RAW => $module->require($path),
-            default => self::requireByFallback($module, $path, $fallback),
-        };
-    }
-
-    /**
-     * @throws \Onlineconf\Exception\OnlineconfException
-     */
-    private static function requireByFallback(Module $module, string $path, mixed $fallback): mixed
-    {
-        return match (true) {
-            is_bool($fallback) => $module->requireBool($path),
-            is_int($fallback) => $module->requireInt($path),
-            is_float($fallback) => $module->requireFloat($path),
-            is_string($fallback) => $module->requireString($path),
-            is_array($fallback) => $module->requireArray($path),
             default => $module->require($path),
         };
     }
 
-    private function reportMissing(string $key, string $path, mixed $fallback, Module $module): void
-    {
-        if ($this->onMissing === null || isset($this->reported[$key])) {
-            return;
-        }
-        $this->reported[$key] = true;
-        ($this->onMissing)(new MissingValue($key, $path, $fallback, $module->name(), CallSite::frames()));
-    }
-
     /**
-     * The module, or null when it cannot be opened; the error is logged once until the module opens again.
+     * The module, or null when there is none. A module file that cannot be opened is a normal state for a
+     * developer machine, so it is noted once at debug level and never tried again in this process: every
+     * mapped key then costs nothing and config() keeps serving what config/*.php holds.
      */
     private function module(): ?Module
     {
+        if ($this->unavailable) {
+            return null;
+        }
+
         try {
-            $module = ($this->moduleFactory)();
+            return ($this->moduleFactory)();
         } catch (OpenException $e) {
-            if (!$this->openErrorLogged) {
-                $this->openErrorLogged = true;
-                $this->logger->error('OnlineConf is unavailable, config() falls back to the loaded configuration: ' . $e->getMessage());
-            }
+            $this->unavailable = true;
+            $this->logger->debug('OnlineConf has no module here, config() uses the values from config/*.php: ' . $e->getMessage());
 
             return null;
         }
-        $this->openErrorLogged = false;
-
-        return $module;
     }
 }

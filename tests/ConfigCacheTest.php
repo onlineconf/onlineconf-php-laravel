@@ -22,8 +22,6 @@ final class ConfigCacheTest extends TestCase
 {
     private ?string $probe = null;
 
-    private ?string $published = null;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -32,16 +30,12 @@ final class ConfigCacheTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ([$this->probe, $this->published] as $file) {
-            if ($file !== null && file_exists($file)) {
-                unlink($file);
-            }
+        if ($this->probe !== null && file_exists($this->probe)) {
+            unlink($this->probe);
         }
         $this->probe = null;
-        $this->published = null;
         Artisan::call('config:clear');
         putenv('ONLINECONF_DIR');
-        self::setOverride(null);
         EagerReads::flush();
         Facade::setFacadeApplication($this->application());
         Container::setInstance($this->application());
@@ -52,16 +46,7 @@ final class ConfigCacheTest extends TestCase
     {
         $this->writeModule(['/probe/lazy' => 'sfrom OnlineConf', '/probe/eager' => 'sread at load time']);
         putenv('ONLINECONF_DIR=' . $this->tempDir());
-        self::setOverride('true');
         $base = $this->application()->basePath();
-        // The caching application is a plain Laravel skeleton: it discovers no package, so it needs the
-        // published config file, exactly as a real application does after vendor:publish.
-        $this->published = $base . '/config/onlineconf.php';
-        self::assertFileDoesNotExist($this->published);
-        file_put_contents($this->published, sprintf(
-            "<?php return ['dir' => %s, 'module' => null, 'check_interval' => 0, 'log_channel' => null, 'config_override' => true, 'on_missing' => null, 'map' => []];",
-            var_export($this->tempDir(), true),
-        ));
         $this->probe = $base . '/config/onlineconf_probe.php';
         file_put_contents($this->probe, <<<'PROBE'
             <?php
@@ -105,20 +90,4 @@ final class ConfigCacheTest extends TestCase
         }
     }
 
-    /**
-     * env() reads $_ENV and $_SERVER always and getenv() only while Dotenv's putenv adapter is on, which
-     * Testbench turns off while it builds the application; a real .env file feeds all three.
-     */
-    private static function setOverride(?string $value): void
-    {
-        if ($value === null) {
-            putenv('ONLINECONF_CONFIG_OVERRIDE');
-            unset($_ENV['ONLINECONF_CONFIG_OVERRIDE'], $_SERVER['ONLINECONF_CONFIG_OVERRIDE']);
-
-            return;
-        }
-        putenv('ONLINECONF_CONFIG_OVERRIDE=' . $value);
-        $_ENV['ONLINECONF_CONFIG_OVERRIDE'] = $value;
-        $_SERVER['ONLINECONF_CONFIG_OVERRIDE'] = $value;
-    }
 }

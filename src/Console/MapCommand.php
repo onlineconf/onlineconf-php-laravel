@@ -13,8 +13,8 @@ use Onlineconf\Laravel\EagerReads;
 
 /**
  * Lists every OnlineConf node this application's configuration refers to: the map derived from the Ref
- * markers in config/*.php together with the explicit "onlineconf.map", and the nodes that were read while
- * the configuration was loading. The input for dumping values and for checking them against the tree.
+ * markers in config/*.php and the nodes that were read while the configuration was loading. The input for
+ * dumping values and for checking them against the tree.
  */
 final class MapCommand extends Command
 {
@@ -36,7 +36,7 @@ final class MapCommand extends Command
             return self::SUCCESS;
         }
         if ($map === [] && $reads === []) {
-            $this->output->writeln('No OnlineConf nodes: no Ref marker in config/*.php and no entry in onlineconf.map.');
+            $this->output->writeln('No OnlineConf nodes: config/*.php declares no marker and reads none.');
 
             return self::SUCCESS;
         }
@@ -46,7 +46,7 @@ final class MapCommand extends Command
             $rows[] = [
                 $key,
                 $entry['path'],
-                $entry['type'] ?? 'by fallback',
+                $entry['type'],
                 $entry['required'] ? 'yes' : 'no',
                 self::printable(Arr::get($fallbacks, $key)),
             ];
@@ -65,7 +65,7 @@ final class MapCommand extends Command
     }
 
     /**
-     * @param array<string, array{path: string, type: string|null, required: bool}> $map
+     * @param array<string, array{path: string, type: string, required: bool}> $map
      * @param array<mixed>                                                          $fallbacks
      * @param list<EagerRead>                                                       $reads
      *
@@ -85,9 +85,6 @@ final class MapCommand extends Command
                     'path' => $read->path,
                     'type' => $read->type,
                     'default' => $read->default,
-                    'missing' => $read->missing,
-                    'module' => $read->module,
-                    'trace' => $read->trace,
                 ], $reads),
             ],
             JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT,

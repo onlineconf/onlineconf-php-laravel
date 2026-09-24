@@ -7,7 +7,6 @@ namespace Onlineconf\Laravel;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Module;
 use Onlineconf\Settings;
-use Onlineconf\Source\ArraySource;
 use Onlineconf\Source\CdbSource;
 use Psr\Log\NullLogger;
 
@@ -16,12 +15,9 @@ use Psr\Log\NullLogger;
  * where config('onlineconf.*') does not exist yet. Settings therefore come from the process environment
  * (ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE, then the client's defaults), not from the config file.
  *
- * ONLINECONF_CONFIG_OVERRIDE, the kill switch of the config() override, switches this off as well, and an
- * unset variable means off: the module is then empty, so get* return their defaults and require* throw
- * NotFoundException. Both mechanisms read the same variable, so they can never disagree.
- *
- * A file that cannot be opened is remembered, so every read costs one failed open per process and not one
- * per call; {@see \Onlineconf\Laravel\Facades\Onlineconf} turns that into a fallback for get*.
+ * A file that cannot be opened is remembered, so a machine without a module pays one failed open per process
+ * and not one per call; {@see \Onlineconf\Laravel\Facades\Onlineconf} turns that into a silent default for
+ * get* and into an exception for require*.
  */
 final class ImmediateModule
 {
@@ -64,9 +60,6 @@ final class ImmediateModule
     private static function open(): Module
     {
         $logger = new NullLogger();
-        if (!(bool) env('ONLINECONF_CONFIG_OVERRIDE', false)) {
-            return new Module(new ArraySource([], 'off'), $logger, 0);
-        }
         $settings = Settings::resolve(getenv(), null, null, $logger);
 
         return new Module(new CdbSource($settings->fileName($settings->module)), $logger, Module::DEFAULT_CHECK_INTERVAL);

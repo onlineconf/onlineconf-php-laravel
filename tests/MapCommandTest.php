@@ -40,18 +40,16 @@ final class MapCommandTest extends TestCase
 
     private function install(): void
     {
-        $this->config()->set('onlineconf.config_override', true);
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
         $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('app.secret', Onlineconf::requireRefString('/app/secret'));
-        $this->config()->set('services.queue.workers', 2);
-        $this->config()->set('onlineconf.map', ['services.queue.workers' => '/app/workers']);
+        $this->config()->set('services.queue.workers', Onlineconf::getRefInt('/app/workers', 2));
         ConfigOverride::install($this->application());
     }
 
     public function testTableListsTheDerivedMapAndTheEagerReads(): void
     {
-        EagerReads::record('/app/eager', Ref::TYPE_INT, 5, true, 'TREE');
+        EagerReads::record('/app/eager', Ref::TYPE_INT, 5);
         $this->install();
 
         [$code, $output] = $this->runCommand();
@@ -70,7 +68,7 @@ final class MapCommandTest extends TestCase
 
     public function testJsonOutput(): void
     {
-        EagerReads::record('/app/eager', Ref::TYPE_INT, 5, true, 'TREE');
+        EagerReads::record('/app/eager', Ref::TYPE_INT, 5);
         $this->install();
 
         [$code, $output] = $this->runCommand(['--json' => true]);
@@ -81,23 +79,14 @@ final class MapCommandTest extends TestCase
         self::assertSame([
             'app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false, 'fallback' => 'From config'],
             'app.secret' => ['path' => '/app/secret', 'type' => 'string', 'required' => true, 'fallback' => null],
-            'services.queue.workers' => ['path' => '/app/workers', 'type' => null, 'required' => false, 'fallback' => 2],
+            'services.queue.workers' => ['path' => '/app/workers', 'type' => 'int', 'required' => false, 'fallback' => 2],
         ], $decoded['map']);
         $eager = $decoded['eager'];
         self::assertIsArray($eager);
         self::assertCount(1, $eager);
         $read = $eager[0];
         self::assertIsArray($read);
-        self::assertSame('/app/eager', $read['path']);
-        self::assertSame('int', $read['type']);
-        self::assertSame(5, $read['default']);
-        self::assertTrue($read['missing']);
-        self::assertSame('TREE', $read['module']);
-        $trace = $read['trace'];
-        self::assertIsArray($trace);
-        $frame = $trace[0] ?? '';
-        self::assertIsString($frame);
-        self::assertStringContainsString('MapCommandTest.php', $frame);
+        self::assertSame(['path' => '/app/eager', 'type' => 'int', 'default' => 5], $read);
     }
 
     public function testNothingToShow(): void

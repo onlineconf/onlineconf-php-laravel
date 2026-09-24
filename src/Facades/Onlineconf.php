@@ -86,7 +86,7 @@ final class Onlineconf extends Facade
      * Until the service provider binds {@see Module}, which happens after config/*.php is loaded, the call
      * goes to the process-wide {@see ImmediateModule} and is recorded in {@see EagerReads}. That is what
      * makes Onlineconf::getString() usable in config/*.php in place of env(). A module file that cannot be
-     * opened is a fallback for get* and an exception for require*.
+     * opened is a silent default for get* and an exception for require*.
      *
      * @param string       $method
      * @param array<mixed> $args
@@ -112,23 +112,21 @@ final class Onlineconf extends Facade
         // the client's own, so they identify the two arguments whatever order they came in.
         $positional = array_values($args);
         $default = $optional ? ($args['default'] ?? $positional[1] ?? null) : null;
+        $path = $args['path'] ?? $positional[0] ?? null;
+        if ($type !== null && is_string($path)) {
+            EagerReads::record($path, $type, $default);
+        }
 
         try {
             $module = ImmediateModule::module();
         } catch (OpenException $e) {
-            // A module file that is not there yet must not stop the application from booting: get* fall back
-            // to their defaults, exactly as config() does later, and install() logs the failure once.
-            EagerReads::openFailed($e->getMessage());
+            // No module on this machine is a normal state: get* answer with what config/*.php would have
+            // used anyway, while require* cannot be satisfied.
             if (!$optional) {
                 throw $e;
             }
 
             return $default;
-        }
-
-        $path = $args['path'] ?? $positional[0] ?? null;
-        if ($type !== null && is_string($path)) {
-            EagerReads::record($path, $type, $default, !$module->has($path), $module->name());
         }
 
         /** @var callable $callable */

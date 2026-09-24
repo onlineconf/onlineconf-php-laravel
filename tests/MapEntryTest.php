@@ -10,57 +10,31 @@ use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class MapEntryTest extends PHPUnitTestCase
 {
-    public function testOldFormatKeepsWorking(): void
-    {
-        self::assertSame(
-            ['app.name' => ['path' => '/app/name', 'type' => null, 'required' => false]],
-            MapEntry::normalize(['app.name' => '/app/name']),
-        );
-    }
-
-    public function testNewFormatIsTakenAsIsAndIsIdempotent(): void
+    public function testDerivedEntriesAreReadBackAsTheyWereWritten(): void
     {
         $entries = MapEntry::normalize([
             'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => true],
-            'app.port' => ['path' => '/app/port'],
+            'app.port' => ['path' => '/app/port', 'type' => Ref::TYPE_INT],
         ]);
 
         self::assertSame([
             'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => true],
-            'app.port' => ['path' => '/app/port', 'type' => null, 'required' => false],
+            'app.port' => ['path' => '/app/port', 'type' => Ref::TYPE_INT, 'required' => false],
         ], $entries);
-        self::assertSame($entries, MapEntry::normalize($entries), 'a normalised map normalises to itself');
+        self::assertSame($entries, MapEntry::normalize($entries), 'reading them back changes nothing');
     }
 
-    public function testUnknownTypeIsRejected(): void
-    {
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('onlineconf.map: app.name declares an unknown type "nonsense"');
-
-        MapEntry::normalize(['app.name' => ['path' => '/app/name', 'type' => 'nonsense']]);
-    }
-
-    public function testTheAllowedTypesAreNamedInTheMessage(): void
-    {
-        try {
-            MapEntry::normalize(['app.name' => ['path' => '/app/name', 'type' => 5]]);
-            self::fail('a type that is not a type must be rejected');
-        } catch (\LogicException $e) {
-            self::assertStringContainsString('duration_ms', $e->getMessage());
-            self::assertStringContainsString('app.name', $e->getMessage());
-        }
-    }
-
-    public function testJunkIsDropped(): void
+    public function testAnythingThatIsNotAnEntryIsDropped(): void
     {
         self::assertSame([], MapEntry::normalize([
-            0 => '/numeric/key',
-            '' => '/empty/key',
-            'a' => 5,
-            'b' => '',
-            'c' => [],
-            'd' => ['path' => ''],
-            'e' => ['path' => 42],
+            0 => ['path' => '/numeric/key', 'type' => 'string'],
+            '' => ['path' => '/empty/key', 'type' => 'string'],
+            'a' => '/app/old-format',
+            'b' => ['type' => 'string'],
+            'c' => ['path' => '', 'type' => 'string'],
+            'd' => ['path' => '/d'],
+            'e' => ['path' => '/e', 'type' => 'nonsense'],
+            'f' => ['path' => '/f', 'type' => 5],
         ]));
         self::assertSame([], MapEntry::normalize('not a map'));
         self::assertSame([], MapEntry::normalize(null));
