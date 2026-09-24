@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Tests;
 
 use Onlineconf\Laravel\Console\GetCommand;
+use Onlineconf\Laravel\Console\MapCommand;
 use Onlineconf\Laravel\Console\SetCommand;
 
 /**
@@ -41,5 +42,15 @@ final class SignatureTest extends TestCase
         self::assertTrue($definition->hasOption('json'));
         self::assertTrue($definition->hasOption('tree'));
         self::assertTrue($definition->hasOption('module'));
+    }
+
+    public function testMapCommandSignatureHasOnlyTheJsonOption(): void
+    {
+        $command = $this->application()->make(MapCommand::class);
+        assert($command instanceof MapCommand);
+        $definition = $command->getDefinition();
+
+        self::assertSame(0, $definition->getArgumentCount());
+        self::assertTrue($definition->hasOption('json'));
     }
 }
