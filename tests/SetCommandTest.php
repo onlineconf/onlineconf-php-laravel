@@ -6,6 +6,8 @@ namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Support\Facades\Artisan;
 use Onlineconf\Cdb\CdbReader;
+use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\ModuleManager;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 final class SetCommandTest extends TestCase
@@ -143,6 +145,25 @@ final class SetCommandTest extends TestCase
 
         self::assertSame(2, $code);
         self::assertStringContainsString('TREE.cdb', $out);
+        self::assertFileDoesNotExist($this->tempDir() . '/TREE.cdb', 'the command edits a module, it does not create one');
+    }
+
+    public function testTheRunningProcessSeesTheWrittenModule(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $manager = $this->application()->make(ModuleManager::class);
+        assert($manager instanceof ModuleManager);
+        try {
+            $manager->module();
+            self::fail('there is no module file yet');
+        } catch (OpenException) {
+        }
+        $this->writeModule(self::MODULE);
+
+        [$code] = $this->runCommand(['path' => '/app/name', 'value' => 'written']);
+
+        self::assertSame(0, $code);
+        self::assertSame('written', $manager->module()->getString('/app/name', ''), 'the remembered failed open is gone');
     }
 
     public function testCorruptModuleFileIsAnError(): void

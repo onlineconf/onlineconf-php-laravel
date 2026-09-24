@@ -4,24 +4,28 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel;
 
-use Closure;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application as ApplicationContract;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
-use LogicException;
+use Illuminate\Support\Arr;
+use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Module;
+use WeakMap;
 
 /**
- * Makes config() read mapped keys from OnlineConf. One line in bootstrap/app.php:
+ * Makes config() read the nodes declared in config/*.php. One line in bootstrap/app.php:
  *
  *     \Onlineconf\Laravel\ConfigOverride::register($app);
  *
- * The map and the kill switch live in the application's published config/onlineconf.php.
+ * The map is derived from the {@see Ref} markers in config/*.php; there is no map to write by hand.
  */
 final class ConfigOverride
 {
+    /** @var WeakMap<Repository, true>|null repositories already installed on, so a repeated install() is a no-op */
+    private static ?WeakMap $installed = null;
+
     /**
      * Installs the override right after the configuration is loaded, before any service provider runs.
      */
@@ -33,15 +37,48 @@ final class ConfigOverride
     }
 
     /**
-     * Replaces the "config" repository with an {@see OverridingRepository} when the override is enabled and the
-     * map is not empty. The module manager it uses is put into the container so the service provider shares it.
+     * Takes every {@see Ref} marker out of the loaded configuration, leaving its fallback behind, and writes
+     * the map the markers declare to "onlineconf.map", where {@see Console\MapCommand} reads it. The "config"
+     * repository is then replaced with an {@see OverridingRepository}, and the module manager it uses is put
+     * into the container so the service provider shares it.
+     *
+     * A configuration from config:cache has no markers left: its map is the one the caching application
+     * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
+     * the same configuration changes nothing — neither the repository nor the registry of immediate reads.
      */
     public static function install(ApplicationContract $app): void
     {
+        try {
+            self::apply($app);
+        } finally {
+            // The configuration is loaded: the module opened for it has nothing left to serve, and a worker
+            // should not keep its dba handle for the life of the process.
+            ImmediateModule::flush();
+        }
+    }
+
+    private static function apply(ApplicationContract $app): void
+    {
         $config = $app->make(Repository::class);
         assert($config instanceof Repository);
-        $map = $config->get('onlineconf.map', []);
-        if (!(bool) $config->get('onlineconf.config_override', true) || !is_array($map) || $map === []) {
+        $installed = self::$installed ??= new WeakMap();
+        if ($config instanceof OverridingRepository || isset($installed[$config])) {
+            return;
+        }
+        $installed[$config] = true;
+        $items = $config->all();
+        // No markers left means the configuration came from config:cache written by an application that had
+        // already resolved them: the map it derived is in the cached array.
+        $map = self::derive($items);
+        if ($map === []) {
+            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
+        }
+        Arr::set($items, 'onlineconf.map', $map);
+        EagerReads::trim();
+
+        if ($map === []) {
+            self::writeBack($config, $items);
+
             return;
         }
 
@@ -49,63 +86,50 @@ final class ConfigOverride
         $app->instance(ModuleManager::class, $manager);
 
         $app->instance('config', new OverridingRepository(
-            $config->all(),
-            self::stringMap($map),
+            $items,
+            $map,
             static fn (): Module => $manager->module(),
-            ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel')),
-            self::onMissing($app, $config->get('onlineconf.on_missing')),
+            ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
         ));
     }
 
     /**
-     * The on_missing handler as a Closure: null stays null, a Closure is used as is, a class name is resolved
-     * from the container on the first call (the container is not booted when the override is installed).
+     * Replaces every marker in the configuration with its fallback and returns the map the markers declare.
      *
-     * @return Closure(MissingValue): void|null
+     * @param array<mixed> $items
      *
-     * @throws LogicException for any other value
+     * @return array<string, array{path: string, type: string, required: bool}>
      */
-    private static function onMissing(ApplicationContract $app, mixed $handler): ?Closure
+    private static function derive(array &$items, string $prefix = ''): array
     {
-        if ($handler === null) {
-            return null;
-        }
-        if ($handler instanceof Closure) {
-            return $handler;
-        }
-        if (is_string($handler) && $handler !== '') {
-            if (!class_exists($handler) && !$app->bound($handler)) {
-                throw new LogicException(sprintf('onlineconf.on_missing: class %s does not exist', $handler));
+        $map = [];
+        foreach ($items as $key => $value) {
+            $dotted = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+            if ($value instanceof Ref) {
+                $map[$dotted] = ['path' => $value->path, 'type' => $value->type, 'required' => $value->required];
+                $items[$key] = $value->fallback;
+
+                continue;
             }
-
-            return static function (MissingValue $missing) use ($app, $handler): void {
-                $callable = $app->make($handler);
-                if (!is_callable($callable)) {
-                    throw new LogicException(sprintf('onlineconf.on_missing: %s is not invokable', $handler));
-                }
-                $callable($missing);
-            };
+            if (is_array($value)) {
+                $nested = $value;
+                $map += self::derive($nested, $dotted);
+                $items[$key] = $nested;
+            }
         }
 
-        throw new LogicException('onlineconf.on_missing must be null, a class name or a Closure');
+        return $map;
     }
 
     /**
-     * Keeps only "non-empty string => non-empty string" entries.
+     * Puts the marker-free configuration back into the repository that stays in place.
      *
-     * @param array<mixed> $map
-     *
-     * @return array<string, string>
+     * @param array<mixed> $items
      */
-    private static function stringMap(array $map): array
+    private static function writeBack(Repository $config, array $items): void
     {
-        $result = [];
-        foreach ($map as $key => $path) {
-            if (is_string($key) && $key !== '' && is_string($path) && $path !== '') {
-                $result[$key] = $path;
-            }
+        foreach ($items as $key => $value) {
+            $config->set((string) $key, $value);
         }
-
-        return $result;
     }
 }

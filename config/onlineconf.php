@@ -5,7 +5,8 @@ declare(strict_types=1);
 return [
     // Directory with module files. null: the client's own resolution chain applies — the process
     // environment (ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE), then /usr/local/etc/onlineconf.yaml,
-    // then /usr/local/etc/onlineconf. Values from .env are visible only through this config key.
+    // then /usr/local/etc/onlineconf. Laravel exports .env to the process environment, so a value set there
+    // reaches the client either way; this key is the explicit alternative and wins.
     'dir' => env('ONLINECONF_DIR'),
 
     // Default module: a name ("TREE" -> "<dir>/TREE.cdb") or a file path. null: the client's default
@@ -17,20 +18,4 @@ return [
 
     // Log channel for the client's warnings and reload messages. null: the application's default logger.
     'log_channel' => env('ONLINECONF_LOG_CHANNEL'),
-
-    // Kill switch of the config() override (see README, "Overriding config() values"). It has an effect only when
-    // Onlineconf\Laravel\ConfigOverride::register($app) is called in bootstrap/app.php.
-    'config_override' => (bool) env('ONLINECONF_CONFIG_OVERRIDE', true),
-
-    // Called once per config key and process when a mapped key is absent from OnlineConf and config() falls back
-    // to the value below. null: silent fallback. A class name is resolved from the container and invoked with
-    // an Onlineconf\Laravel\MissingValue (config key, OnlineConf path, fallback, module, call site); a Closure
-    // works too but not together with config:cache.
-    'on_missing' => null,
-
-    // Laravel config key => OnlineConf path. A mapped key is read from OnlineConf and falls back to the value
-    // below it in config/*.php when OnlineConf has no such key. Empty: the override does nothing.
-    'map' => [
-        // 'services.mailer.host' => '/my/service/mailer/host',
-    ],
 ];

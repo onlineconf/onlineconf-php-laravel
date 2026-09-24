@@ -6,11 +6,14 @@ namespace Onlineconf\Laravel\Tests;
 
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
-use Onlineconf\Laravel\MissingValue;
+use Onlineconf\Laravel\Ref;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class OverridingRepositoryTest extends PHPUnitTestCase
@@ -31,18 +34,18 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         ],
     ];
 
-    /** @var array<string, string> */
+    /** @var array<string, array{path: string, type: string}> */
     private const MAP = [
-        'app.name' => '/app/name',
-        'app.debug' => '/app/debug',
-        'app.workers' => '/app/workers',
-        'app.ratio' => '/app/ratio',
-        'app.hosts' => '/app/hosts',
-        'app.secret' => '/app/secret',
-        'app.missing' => '/app/missing',
-        'services.mailer.host' => '/services/mailer/host',
-        'services.mailer.port' => '/services/mailer/port',
-        'absent' => '/absent',
+        'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING],
+        'app.debug' => ['path' => '/app/debug', 'type' => Ref::TYPE_BOOL],
+        'app.workers' => ['path' => '/app/workers', 'type' => Ref::TYPE_INT],
+        'app.ratio' => ['path' => '/app/ratio', 'type' => Ref::TYPE_FLOAT],
+        'app.hosts' => ['path' => '/app/hosts', 'type' => Ref::TYPE_ARRAY],
+        'app.secret' => ['path' => '/app/secret', 'type' => Ref::TYPE_RAW],
+        'app.missing' => ['path' => '/app/missing', 'type' => Ref::TYPE_STRING],
+        'services.mailer.host' => ['path' => '/services/mailer/host', 'type' => Ref::TYPE_STRING],
+        'services.mailer.port' => ['path' => '/services/mailer/port', 'type' => Ref::TYPE_INT],
+        'absent' => ['path' => '/absent', 'type' => Ref::TYPE_STRING],
     ];
 
     /** @var array<string, string|array<mixed>> */
@@ -68,28 +71,18 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
     }
 
     /**
-     * @param array<string, mixed>  $items
-     * @param array<string, string> $map
+     * @param array<string, mixed>                                   $items
+     * @param array<string, mixed>                                   $map
      * @param array<string, string|int|float|bool|array<mixed>|null> $values
      */
-    private function repository(array $items = self::ITEMS, array $map = self::MAP, array $values = self::VALUES, ?\Closure $onMissing = null): OverridingRepository
+    private function repository(array $items = self::ITEMS, array $map = self::MAP, array $values = self::VALUES): OverridingRepository
     {
         $module = new Module(ArraySource::fromValues($values), $this->logger, 0);
 
-        return new OverridingRepository($items, $map, static fn (): Module => $module, $this->logger, $onMissing);
+        return new OverridingRepository($items, MapEntry::normalize($map), static fn (): Module => $module, $this->logger);
     }
 
-    /**
-     * @param list<MissingValue> $reported
-     */
-    private function recording(array &$reported): \Closure
-    {
-        return static function (MissingValue $missing) use (&$reported): void {
-            $reported[] = $missing;
-        };
-    }
-
-    public function testMappedKeysAreReadWithTheTypeOfTheFallback(): void
+    public function testMappedKeysAreReadWithTheDeclaredType(): void
     {
         $repository = $this->repository();
 
@@ -98,17 +91,64 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertSame(8, $repository->get('app.workers'));
         self::assertSame(0.25, $repository->get('app.ratio'));
         self::assertSame(['b.example.com', 'c.example.com'], $repository->get('app.hosts'));
-        self::assertSame('s3cret', $repository->get('app.secret'), 'null fallback: the raw string');
+        self::assertSame('s3cret', $repository->get('app.secret'), 'raw: the value as stored');
         self::assertSame('mail.onlineconf', $repository->get('services.mailer.host'));
     }
 
-    public function testMissingOnlineconfKeyFallsBackToTheConfiguration(): void
+    /**
+     * type, the raw OnlineConf value, the fallback in config/*.php, the expected result.
+     *
+     * @return array<string, array{string, string|array<mixed>, mixed, mixed}>
+     */
+    public static function typedNodes(): array
+    {
+        return [
+            'string' => [Ref::TYPE_STRING, 'text', 'dflt', 'text'],
+            'int' => [Ref::TYPE_INT, '42', 1, 42],
+            'float' => [Ref::TYPE_FLOAT, '0.25', 1.0, 0.25],
+            'bool' => [Ref::TYPE_BOOL, '1', false, true],
+            'duration' => [Ref::TYPE_DURATION, '1m', 1.0, 60.0],
+            'duration_ms' => [Ref::TYPE_DURATION_MS, '1.5s', 1, 1500],
+            'strings' => [Ref::TYPE_STRINGS, 'a, b', ['x'], ['a', 'b']],
+            'array' => [Ref::TYPE_ARRAY, ['pool' => 5], [], ['pool' => 5]],
+            'raw' => [Ref::TYPE_RAW, 'text', null, 'text'],
+        ];
+    }
+
+    /**
+     * @param string|array<mixed> $value
+     */
+    #[DataProvider('typedNodes')]
+    public function testEveryTypeHasItsGetter(string $type, string|array $value, mixed $fallback, mixed $expected): void
+    {
+        $repository = $this->repository(['node' => $fallback], ['node' => ['path' => '/node', 'type' => $type]], ['/node' => $value]);
+
+        self::assertSame($expected, $repository->get('node'));
+    }
+
+    /**
+     * @param string|array<mixed> $value
+     */
+    #[DataProvider('typedNodes')]
+    public function testEveryTypeHasItsRequireGetter(string $type, string|array $value, mixed $fallback, mixed $expected): void
+    {
+        $repository = $this->repository(
+            ['node' => $fallback],
+            ['node' => ['path' => '/node', 'type' => $type, 'required' => true]],
+            ['/node' => $value],
+        );
+
+        self::assertSame($expected, $repository->get('node'));
+    }
+
+    public function testMissingNodeFallsBackSilently(): void
     {
         $repository = $this->repository();
 
         self::assertSame(25, $repository->get('services.mailer.port'));
         self::assertNull($repository->get('absent'));
         self::assertSame('dflt', $repository->get('absent', 'dflt'));
+        self::assertSame([], $this->log->getRecords(), 'a node the tree does not have is the normal state');
     }
 
     public function testUnmappedKeysComeFromTheConfiguration(): void
@@ -119,12 +159,24 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         self::assertSame('dflt', $repository->get('nothing', 'dflt'));
     }
 
-    public function testUnparsableValueFallsBackAndWarns(): void
+    public function testUnparsableValueKeepsTheRealFallbackAndWarns(): void
     {
         $repository = $this->repository(values: ['/app/workers' => 'eight']);
 
         self::assertSame(4, $repository->get('app.workers'));
         self::assertTrue($this->log->hasWarningThatContains('/app/workers'));
+    }
+
+    public function testUnparsableValueFallsBackToNull(): void
+    {
+        $repository = $this->repository(
+            ['node' => null],
+            ['node' => ['path' => '/node', 'type' => Ref::TYPE_INT]],
+            ['/node' => 'eight'],
+        );
+
+        self::assertNull($repository->get('node'), 'getRefInt(path, null): a null fallback is a null fallback');
+        self::assertTrue($this->log->hasWarningThatContains('/node'));
     }
 
     public function testParentKeyIncludesMappedDescendants(): void
@@ -228,7 +280,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
     public function testInvalidJsonFallsBackAndLogsAnError(): void
     {
         $module = new Module(new ArraySource(['/app/hosts' => 'j{not json']), $this->logger, 0);
-        $repository = new OverridingRepository(self::ITEMS, self::MAP, static fn (): Module => $module, $this->logger);
+        $repository = new OverridingRepository(self::ITEMS, MapEntry::normalize(self::MAP), static fn (): Module => $module, $this->logger);
 
         self::assertSame(['a.example.com'], $repository->get('app.hosts'));
         self::assertTrue($this->log->hasErrorThatContains('/app/hosts'));
@@ -237,7 +289,10 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
     public function testSetOnAChildUnmapsTheParent(): void
     {
         $items = ['services' => ['mailer' => ['host' => 'from-config']]];
-        $map = ['services' => '/services', 'services.mailer.host' => '/services/mailer/host'];
+        $map = [
+            'services' => ['path' => '/services', 'type' => Ref::TYPE_ARRAY],
+            'services.mailer.host' => ['path' => '/services/mailer/host', 'type' => Ref::TYPE_STRING],
+        ];
         $values = [
             '/services' => ['mailer' => ['host' => 'from-onlineconf']],
             '/services/mailer/host' => 'from-onlineconf-leaf',
@@ -254,107 +309,44 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         );
     }
 
-    public function testOpenFailureFallsBackLogsOnceAndRetries(): void
+    public function testNoModuleServesTheFallbacks(): void
     {
-        $module = new Module(ArraySource::fromValues(self::VALUES), $this->logger, 0);
-        $attempts = 0;
-        $factory = static function () use (&$attempts, $module): Module {
-            if (++$attempts <= 2) {
-                throw new OpenException('cannot open TREE.cdb');
-            }
-
-            return $module;
-        };
-        $repository = new OverridingRepository(self::ITEMS, self::MAP, $factory, $this->logger);
-
-        self::assertSame('From config', $repository->get('app.name'));
-        self::assertSame('From config', $repository->get('app.name'));
-        self::assertFalse($repository->has('absent'));
-        self::assertCount(1, $this->log->getRecords(), 'the error is logged once');
-        self::assertTrue($this->log->hasErrorThatContains('cannot open TREE.cdb'));
-
-        self::assertSame('From OnlineConf', $repository->get('app.name'), 'the third attempt succeeds');
-    }
-
-    public function testMissingKeyIsReportedOncePerConfigKeyWithTheCallSite(): void
-    {
-        $reported = [];
-        $repository = $this->repository(onMissing: $this->recording($reported));
-
-        self::assertSame(25, $repository->get('services.mailer.port'));
-        $line = __LINE__ - 1;
-        self::assertSame(25, $repository->get('services.mailer.port'), 'the second read is served the same way');
-        self::assertNull($repository->get('absent'));
-
-        self::assertCount(2, $reported, 'one report per config key');
-        $first = $reported[0];
-        self::assertSame('services.mailer.port', $first->configKey);
-        self::assertSame('/services/mailer/port', $first->path);
-        self::assertSame(25, $first->fallback);
-        self::assertSame('array', $first->module);
-        self::assertSame(__FILE__, $first->file);
-        self::assertSame($line, $first->line);
-        self::assertSame(__FILE__ . ':' . $line, $first->trace[0]);
-        self::assertLessThanOrEqual(5, count($first->trace));
-        self::assertSame('absent', $reported[1]->configKey);
-        self::assertSame('/absent', $reported[1]->path);
-        self::assertNull($reported[1]->fallback);
-    }
-
-    public function testPresentKeyIsNotReported(): void
-    {
-        $reported = [];
-        $repository = $this->repository(onMissing: $this->recording($reported));
-
-        self::assertSame('From OnlineConf', $repository->get('app.name'));
-        self::assertSame('s3cret', $repository->get('app.secret'));
-
-        self::assertSame([], $reported);
-    }
-
-    public function testParentReadReportsMissingDescendants(): void
-    {
-        $reported = [];
-        $repository = $this->repository(onMissing: $this->recording($reported));
-
-        $repository->get('services');
-
-        self::assertCount(1, $reported);
-        self::assertSame('services.mailer.port', $reported[0]->configKey);
-    }
-
-    public function testUnavailableModuleDoesNotReport(): void
-    {
-        $reported = [];
         $repository = new OverridingRepository(
             self::ITEMS,
-            self::MAP,
-            static fn (): Module => throw new OpenException('gone'),
+            MapEntry::normalize(self::MAP),
+            static fn (): Module => throw new OpenException('cannot open TREE.cdb'),
             $this->logger,
-            $this->recording($reported),
         );
 
         self::assertSame('From config', $repository->get('app.name'));
-        self::assertSame([], $reported, 'a module that cannot be opened is an error already logged, not a missing key');
+        self::assertSame(4, $repository->get('app.workers'));
+        self::assertFalse($repository->has('absent'));
+        self::assertSame([], $this->log->getRecords(), 'the module manager notes it, once per process');
     }
 
-    public function testHandlerExceptionPropagates(): void
+    public function testRequiredNodeThrowsWhenOnlineconfDoesNotHaveIt(): void
     {
-        $repository = $this->repository(onMissing: static function (MissingValue $missing): void {
-            throw new \RuntimeException('handler failed for ' . $missing->configKey);
-        });
+        $repository = $this->repository(
+            ['node' => 'dflt'],
+            ['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'required' => true]],
+            [],
+        );
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('handler failed for absent');
-        $repository->get('absent');
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage('/node');
+        $repository->get('node');
     }
 
-    public function testMissingValueWithoutFramesHasNoFileAndLine(): void
+    public function testRequiredNodeThrowsWhenThereIsNoModule(): void
     {
-        $missing = new MissingValue('a.b', '/a/b', null, 'TREE', []);
+        $repository = new OverridingRepository(
+            ['node' => 'dflt'],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'required' => true]]),
+            static fn (): Module => throw new OpenException('cannot open TREE.cdb'),
+            $this->logger,
+        );
 
-        self::assertNull($missing->file);
-        self::assertNull($missing->line);
-        self::assertSame([], $missing->trace);
+        $this->expectException(OpenException::class);
+        $repository->get('node');
     }
 }

@@ -1,0 +1,204 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Onlineconf\Laravel\Tests;
+
+use Illuminate\Container\Container;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Facade;
+use Onlineconf\Exception\NotFoundException;
+use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\ConfigOverride;
+use Onlineconf\Laravel\EagerReads;
+use Onlineconf\Laravel\Facades\Onlineconf;
+use Onlineconf\Laravel\ImmediateModule;
+use Onlineconf\Laravel\Ref;
+use Onlineconf\Module;
+
+/**
+ * The facade while config/*.php is loading: the service provider has not registered Module::class yet, so
+ * reads go to the module of the process environment and are recorded for onlineconf:map.
+ */
+final class ImmediateModeTest extends TestCase
+{
+    private ?Application $bare = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        EagerReads::flush();
+        ImmediateModule::flush();
+    }
+
+    protected function tearDown(): void
+    {
+        putenv('ONLINECONF_DIR');
+        EagerReads::flush();
+        ImmediateModule::flush();
+        if ($this->bare !== null) {
+            $this->bare->flush();
+            $this->bare = null;
+        }
+        Facade::setFacadeApplication($this->application());
+        Container::setInstance($this->application());
+        parent::tearDown();
+    }
+
+    /**
+     * An application as it is while LoadConfiguration runs: nothing of this package is registered.
+     */
+    private function beforeProviders(bool $withModule = true): Application
+    {
+        if ($withModule) {
+            $this->writeModule([
+                '/app/name' => 'sFrom OnlineConf',
+                '/app/workers' => 's8',
+            ]);
+        }
+        putenv('ONLINECONF_DIR=' . $this->tempDir());
+        $this->bare = new Application($this->tempDir());
+        Facade::setFacadeApplication($this->bare);
+
+        return $this->bare;
+    }
+
+    public function testGettersReadTheModuleOfTheProcessEnvironment(): void
+    {
+        $app = $this->beforeProviders();
+        self::assertFalse($app->bound(Module::class), 'the provider has not run yet');
+
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'));
+        self::assertSame(8, Onlineconf::requireInt('/app/workers'));
+        self::assertSame('dflt', Onlineconf::getString('/app/gone', 'dflt'));
+        self::assertSame('TREE', Onlineconf::name(), 'a method that is not a node read still works');
+    }
+
+    public function testEveryReadIsRecorded(): void
+    {
+        $this->beforeProviders();
+
+        Onlineconf::getString('/app/name', 'dflt');
+        Onlineconf::getInt('/app/gone', 7);
+        Onlineconf::name();
+
+        $reads = EagerReads::all();
+        self::assertCount(2, $reads, 'only node reads are recorded');
+        self::assertSame('/app/name', $reads[0]->path);
+        self::assertSame(Ref::TYPE_STRING, $reads[0]->type);
+        self::assertSame('dflt', $reads[0]->default);
+        self::assertSame('/app/gone', $reads[1]->path);
+        self::assertSame(Ref::TYPE_INT, $reads[1]->type);
+        self::assertSame(7, $reads[1]->default);
+    }
+
+    public function testNamedArgumentsAreRecordedToo(): void
+    {
+        $this->beforeProviders();
+
+        self::assertSame('From OnlineConf', Onlineconf::getString(path: '/app/name', default: 'dflt'));
+        self::assertSame('From OnlineConf', Onlineconf::getString(default: 'other', path: '/app/name'));
+
+        $reads = EagerReads::all();
+        self::assertCount(2, $reads);
+        self::assertSame('/app/name', $reads[0]->path);
+        self::assertSame('dflt', $reads[0]->default);
+        self::assertSame('/app/name', $reads[1]->path, 'the names identify the arguments, not their order');
+        self::assertSame('other', $reads[1]->default);
+    }
+
+    public function testRequireThrowsWhenTheNodeIsAbsent(): void
+    {
+        $this->beforeProviders();
+
+        $this->expectException(NotFoundException::class);
+        Onlineconf::requireString('/app/gone');
+    }
+
+    public function testGettersReturnTheirDefaultsWhenThereIsNoModule(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'a machine without a module still boots');
+        self::assertSame(7, Onlineconf::getInt('/app/workers', 7));
+        self::assertCount(2, EagerReads::all(), 'the reads are listed even though nothing answered them');
+    }
+
+    public function testRequireThrowsWhenThereIsNoModule(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        $this->expectException(OpenException::class);
+        Onlineconf::requireString('/app/name');
+    }
+
+    public function testOtherMethodsThrowWhenThereIsNoModule(): void
+    {
+        $this->beforeProviders(withModule: false);
+
+        $this->expectException(OpenException::class);
+        Onlineconf::name();
+    }
+
+    public function testTheModuleIsOpenedOncePerProcess(): void
+    {
+        $this->beforeProviders();
+
+        self::assertSame(ImmediateModule::module(), ImmediateModule::module());
+    }
+
+    public function testTheFacadeWorksWithoutAnApplication(): void
+    {
+        $this->beforeProviders();
+        Facade::setFacadeApplication(null);
+
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'), 'no container, no problem');
+    }
+
+    public function testTheBoundModuleWinsAsSoonAsTheProviderRegistered(): void
+    {
+        $this->useModule(['/app/name' => 'sfrom the container']);
+
+        self::assertSame('from the container', Onlineconf::getString('/app/name', 'dflt'));
+        self::assertSame([], EagerReads::all(), 'a normal read is not an eager read');
+    }
+
+    public function testInstallReleasesTheModuleOfTheConfigLoad(): void
+    {
+        $this->beforeProviders();
+        $before = ImmediateModule::module();
+
+        ConfigOverride::install($this->application());
+
+        self::assertNotSame($before, ImmediateModule::module(), 'the handle of the config load is not kept open');
+    }
+
+    public function testAFailedOpenIsNotRetriedWithinTheLoad(): void
+    {
+        $this->beforeProviders(withModule: false);
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'));
+
+        $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'one failed open per configuration load');
+    }
+
+    public function testNoModuleRaisesNoPhpWarning(): void
+    {
+        $this->beforeProviders(withModule: false);
+        $errors = [];
+        set_error_handler(static function (int $level, string $message) use (&$errors): bool {
+            $errors[] = $message; // @-suppressed ones too: Collision reports those in the application's tests
+
+            return true;
+        });
+        try {
+            $value = Onlineconf::getString('/app/name', 'dflt');
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame('dflt', $value);
+        self::assertSame([], $errors, 'every test that boots the application would report it otherwise');
+    }
+}

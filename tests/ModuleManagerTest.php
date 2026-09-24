@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Monolog\Handler\TestHandler;
+use Monolog\Logger;
+use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Settings;
@@ -114,5 +117,70 @@ final class ModuleManagerTest extends TestCase
         $manager->fake(['/app/name' => 'fake']);
 
         self::assertSame('fake', $manager->module()->getString('/app/name', ''));
+    }
+
+    public function testAFailedOpenIsRememberedAndNotedOnce(): void
+    {
+        // The module directory is reached through a symlink, as a Kubernetes configMap (..data/) or macOS
+        // (/var → /private/var) does: once the file exists its real path differs from the configured one.
+        $real = $this->tempDir() . '/real';
+        mkdir($real, 0o700);
+        $link = sys_get_temp_dir() . '/onlineconf-laravel-link-' . bin2hex(random_bytes(6));
+        symlink($real, $link);
+        $log = new TestHandler();
+        $manager = new ModuleManager(new Settings($link, 'TREE'), new Logger('test', [$log]), 0);
+
+        try {
+            try {
+                $manager->module();
+                self::fail('there is no module file yet');
+            } catch (OpenException $first) {
+            }
+            CdbWriter::write($real . '/TREE.cdb', ['/app/name' => 'sdemo']);
+
+            try {
+                $manager->module();
+                self::fail('a process that started without the file keeps serving without it');
+            } catch (OpenException $second) {
+                self::assertSame($first, $second, 'the remembered failure, not a new attempt');
+            }
+        } finally {
+            unlink($link);
+        }
+        self::assertCount(1, $log->getRecords());
+        self::assertTrue($log->hasDebugThatContains('TREE.cdb'), 'no module is a normal state, not an error');
+    }
+
+    public function testAFakeReplacesARememberedFailure(): void
+    {
+        $manager = $this->manager();
+        try {
+            $manager->module();
+        } catch (OpenException) {
+        }
+
+        $manager->fake(['/app/name' => 'fake']);
+
+        self::assertSame('fake', $manager->module()->getString('/app/name', ''));
+    }
+
+    public function testAMissingFileRaisesNoPhpWarning(): void
+    {
+        $errors = [];
+        set_error_handler(static function (int $level, string $message) use (&$errors): bool {
+            $errors[] = $message; // @-suppressed ones too: Collision reports those in the application's tests
+
+            return true;
+        });
+        try {
+            $this->manager()->module();
+            self::fail('there is no module file');
+        } catch (OpenException $e) {
+            self::assertStringContainsString('TREE.cdb: no such file', $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame([], $errors);
     }
 }

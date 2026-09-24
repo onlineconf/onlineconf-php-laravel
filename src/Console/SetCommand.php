@@ -15,7 +15,8 @@ use Onlineconf\Source\ArraySource;
 
 /**
  * Edits a local module file. CDB cannot be changed in place, so the file is read whole, changed, the child
- * lists are regenerated and both the .cdb and the human-readable .conf next to it are written again.
+ * lists are regenerated and both the .cdb and the human-readable .conf next to it are written again. The file
+ * must exist: the command edits a module, it does not create one.
  */
 final class SetCommand extends Command
 {
@@ -86,6 +87,7 @@ final class SetCommand extends Command
         } catch (WriteException $e) {
             return $this->reportError($e->getMessage(), self::EXIT_ERROR);
         }
+        $manager->forgetFailure($file);
         $this->output->writeln(sprintf('%s: %s %s', $file, $delete ? 'deleted' : 'set', $path));
 
         return self::SUCCESS;
