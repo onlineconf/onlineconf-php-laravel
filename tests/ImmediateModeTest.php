@@ -172,4 +172,14 @@ final class ImmediateModeTest extends TestCase
 
         self::assertNotSame($before, ImmediateModule::module(), 'the handle of the config load is not kept open');
     }
+
+    public function testAFailedOpenIsNotRetriedWithinTheLoad(): void
+    {
+        $this->beforeProviders(withModule: false);
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'));
+
+        $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'one failed open per configuration load');
+    }
 }

@@ -22,8 +22,8 @@ use Psr\Log\LoggerInterface;
  * and a module file that cannot be opened.
  *
  * Each node is read with the type its marker declares ({@see Ref::TYPES}); the fallback is returned as it is
- * and is never replaced by an empty value of that type. A required marker must find its node: the client's
- * exception reaches the caller instead of a fallback.
+ * and is never replaced by an empty value of that type. A required marker must find its node, in a module that
+ * opens: the client's exception reaches the caller instead of a fallback.
  */
 final class OverridingRepository extends Repository
 {
@@ -32,8 +32,6 @@ final class OverridingRepository extends Repository
 
     /** @var array<string, list<string>> config key → mapped keys below it ("services" → ["services.mailer.host", …]) */
     private array $below = [];
-
-    private bool $unavailable = false;
 
     /**
      * @param array<mixed>                                                    $items         the loaded configuration
@@ -109,16 +107,6 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The map the override reads, for tooling ({@see \Onlineconf\Laravel\Console\MapCommand}).
-     *
-     * @return array<string, array{path: string, type: string, required: bool}>
-     */
-    public function map(): array
-    {
-        return $this->map;
-    }
-
-    /**
      * @param string $key
      */
     public function has($key): bool
@@ -168,19 +156,20 @@ final class OverridingRepository extends Repository
      * The node read with the type its marker declares. A node the tree does not have is the normal state —
      * the value from config/*.php is the default — so it is a silent fallback; a value that does not parse
      * is a warning in the client's own wording, and also a fallback. A required marker gets neither: its
-     * exceptions reach the caller.
+     * exceptions reach the caller, OpenException included.
      *
      * @param array{path: string, type: string, required: bool} $entry
      */
     private function override(array $entry, mixed $fallback): mixed
     {
+        $path = $entry['path'];
+        if ($entry['required']) {
+            // Without a module a required node cannot be satisfied either: the OpenException propagates.
+            return self::read(($this->moduleFactory)(), $entry['type'], $path);
+        }
         $module = $this->module();
         if ($module === null) {
             return $fallback;
-        }
-        $path = $entry['path'];
-        if ($entry['required']) {
-            return self::read($module, $entry['type'], $path);
         }
 
         try {
@@ -224,22 +213,14 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The module, or null when there is none. A module file that cannot be opened is a normal state for a
-     * developer machine, so it is noted once at debug level and never tried again in this process: every
-     * mapped key then costs nothing and config() keeps serving what config/*.php holds.
+     * The module, or null when there is none. The module manager remembers a failed open for the process and
+     * notes it once, so asking it on every read costs nothing and a later fake() is seen at once.
      */
     private function module(): ?Module
     {
-        if ($this->unavailable) {
-            return null;
-        }
-
         try {
             return ($this->moduleFactory)();
-        } catch (OpenException $e) {
-            $this->unavailable = true;
-            $this->logger->debug('OnlineConf has no module here, config() uses the values from config/*.php: ' . $e->getMessage());
-
+        } catch (OpenException) {
             return null;
         }
     }

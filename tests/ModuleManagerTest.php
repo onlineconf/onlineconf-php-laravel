@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Monolog\Handler\TestHandler;
+use Monolog\Logger;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Settings;
@@ -110,6 +112,41 @@ final class ModuleManagerTest extends TestCase
     public function testFakeWorksWithoutAnyFile(): void
     {
         $manager = $this->manager();
+
+        $manager->fake(['/app/name' => 'fake']);
+
+        self::assertSame('fake', $manager->module()->getString('/app/name', ''));
+    }
+
+    public function testAFailedOpenIsRememberedAndNotedOnce(): void
+    {
+        $log = new TestHandler();
+        $manager = new ModuleManager(new Settings($this->tempDir(), 'TREE'), new Logger('test', [$log]), 0);
+
+        try {
+            $manager->module();
+            self::fail('there is no module file yet');
+        } catch (OpenException $first) {
+        }
+        $this->writeModule(['/app/name' => 'sdemo']);
+
+        try {
+            $manager->module();
+            self::fail('a process that started without the file keeps serving without it');
+        } catch (OpenException $second) {
+            self::assertSame($first, $second, 'the remembered failure, not a new attempt');
+        }
+        self::assertCount(1, $log->getRecords());
+        self::assertTrue($log->hasDebugThatContains('TREE.cdb'), 'no module is a normal state, not an error');
+    }
+
+    public function testAFakeReplacesARememberedFailure(): void
+    {
+        $manager = $this->manager();
+        try {
+            $manager->module();
+        } catch (OpenException) {
+        }
 
         $manager->fake(['/app/name' => 'fake']);
 

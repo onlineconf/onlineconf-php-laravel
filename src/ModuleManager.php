@@ -21,6 +21,9 @@ final class ModuleManager
     /** @var array<string, Module> modules by resolved file path */
     private array $modules = [];
 
+    /** @var array<string, OpenException> failed opens by resolved file path, rethrown instead of reopening */
+    private array $failures = [];
+
     public function __construct(
         private readonly Settings $settings,
         private readonly LoggerInterface $logger,
@@ -31,13 +34,34 @@ final class ModuleManager
     /**
      * The default module for null, otherwise a module by name ("TREE" → "<dir>/TREE.cdb") or by file path.
      *
+     * A file that cannot be opened is remembered for the life of the manager — the process, or the container
+     * under Octane — so a machine without OnlineConf pays one failed open, noted once at debug level, and
+     * every later call rethrows the same exception without touching the disk.
+     *
      * @throws OpenException when the file cannot be opened as CDB
      */
     public function module(?string $name = null): Module
     {
         $key = $this->key($name);
+        if (isset($this->modules[$key])) {
+            return $this->modules[$key];
+        }
+        if (isset($this->failures[$key])) {
+            throw $this->failures[$key];
+        }
 
-        return $this->modules[$key] ??= new Module(new CdbSource($key), $this->logger, $this->checkInterval);
+        try {
+            return $this->modules[$key] = new Module(new CdbSource($key), $this->logger, $this->checkInterval);
+        } catch (OpenException $e) {
+            $this->failures[$key] = $e;
+            $this->logger->debug(sprintf(
+                'OnlineConf module %s cannot be opened, not trying again in this process: %s',
+                $key,
+                $e->getMessage(),
+            ));
+
+            throw $e;
+        }
     }
 
     public function settings(): Settings
@@ -55,7 +79,9 @@ final class ModuleManager
     public function fake(array $values = [], ?string $name = null): ArraySource
     {
         $source = ArraySource::fromValues($values);
-        $this->modules[$this->key($name)] = new Module($source, $this->logger, 0);
+        $key = $this->key($name);
+        unset($this->failures[$key]);
+        $this->modules[$key] = new Module($source, $this->logger, 0);
 
         return $source;
     }

@@ -309,24 +309,19 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         );
     }
 
-    public function testAMissingModuleIsNotedOnceAndNeverRetried(): void
+    public function testNoModuleServesTheFallbacks(): void
     {
-        $attempts = 0;
-        $factory = static function () use (&$attempts): Module {
-            $attempts++;
+        $repository = new OverridingRepository(
+            self::ITEMS,
+            MapEntry::normalize(self::MAP),
+            static fn (): Module => throw new OpenException('cannot open TREE.cdb'),
+            $this->logger,
+        );
 
-            throw new OpenException('cannot open TREE.cdb');
-        };
-        $repository = new OverridingRepository(self::ITEMS, MapEntry::normalize(self::MAP), $factory, $this->logger);
-
-        self::assertSame('From config', $repository->get('app.name'));
         self::assertSame('From config', $repository->get('app.name'));
         self::assertSame(4, $repository->get('app.workers'));
         self::assertFalse($repository->has('absent'));
-
-        self::assertSame(1, $attempts, 'a machine without a module pays one failed open per process');
-        self::assertCount(1, $this->log->getRecords());
-        self::assertTrue($this->log->hasDebugThatContains('cannot open TREE.cdb'), 'a missing module is not an error');
+        self::assertSame([], $this->log->getRecords(), 'the module manager notes it, once per process');
     }
 
     public function testRequiredNodeThrowsWhenOnlineconfDoesNotHaveIt(): void
@@ -342,25 +337,16 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         $repository->get('node');
     }
 
-    public function testRequiredNodeFallsBackWhenThereIsNoModule(): void
+    public function testRequiredNodeThrowsWhenThereIsNoModule(): void
     {
         $repository = new OverridingRepository(
             ['node' => 'dflt'],
             MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'required' => true]]),
-            static fn (): Module => throw new OpenException('gone'),
+            static fn (): Module => throw new OpenException('cannot open TREE.cdb'),
             $this->logger,
         );
 
-        self::assertSame('dflt', $repository->get('node'), 'no module at all is a different thing from an empty node');
-    }
-
-    public function testMapExposesTheEntries(): void
-    {
-        $repository = $this->repository(
-            ['node' => 1],
-            ['node' => ['path' => '/node', 'type' => Ref::TYPE_INT, 'required' => true]],
-        );
-
-        self::assertSame(['node' => ['path' => '/node', 'type' => Ref::TYPE_INT, 'required' => true]], $repository->map());
+        $this->expectException(OpenException::class);
+        $repository->get('node');
     }
 }

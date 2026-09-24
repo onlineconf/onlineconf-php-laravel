@@ -216,4 +216,16 @@ final class ConfigOverrideTest extends TestCase
         self::assertSame($installed, $this->config());
         self::assertSame('From OnlineConf', config('app.name'));
     }
+
+    public function testAFakeAfterAFailedOpenReachesConfig(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        ConfigOverride::install($this->application());
+        self::assertSame('From config', config('app.name'), 'no module file: the fallback');
+
+        Onlineconf::fake(['/app/name' => 'fake']);
+
+        self::assertSame('fake', config('app.name'), 'the fake replaces the remembered failure');
+    }
 }
