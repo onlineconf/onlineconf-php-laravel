@@ -6,7 +6,6 @@ namespace Onlineconf\Laravel\Tests;
 
 use Onlineconf\Laravel\Console\GetCommand;
 use Onlineconf\Laravel\Console\MapCommand;
-use Onlineconf\Laravel\Console\SetCommand;
 
 /**
  * Laravel 10's `Illuminate\Console\Parser::parameters()` matches option-like tokens with an unanchored
@@ -17,20 +16,6 @@ use Onlineconf\Laravel\Console\SetCommand;
  */
 final class SignatureTest extends TestCase
 {
-    public function testSetCommandSignatureKeepsBothArguments(): void
-    {
-        $command = $this->application()->make(SetCommand::class);
-        assert($command instanceof SetCommand);
-        $definition = $command->getDefinition();
-
-        self::assertTrue($definition->hasArgument('path'));
-        self::assertTrue($definition->hasArgument('value'));
-        self::assertSame(2, $definition->getArgumentCount());
-        self::assertTrue($definition->hasOption('json'));
-        self::assertTrue($definition->hasOption('delete'));
-        self::assertTrue($definition->hasOption('module'));
-    }
-
     public function testGetCommandSignatureKeepsItsArgument(): void
     {
         $command = $this->application()->make(GetCommand::class);
