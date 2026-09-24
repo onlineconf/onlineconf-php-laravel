@@ -12,6 +12,7 @@ use Illuminate\Support\Arr;
 use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Module;
+use WeakMap;
 
 /**
  * Makes config() read the nodes declared in config/*.php. One line in bootstrap/app.php:
@@ -22,6 +23,9 @@ use Onlineconf\Module;
  */
 final class ConfigOverride
 {
+    /** @var WeakMap<Repository, true>|null repositories already installed on, so a repeated install() is a no-op */
+    private static ?WeakMap $installed = null;
+
     /**
      * Installs the override right after the configuration is loaded, before any service provider runs.
      */
@@ -39,8 +43,8 @@ final class ConfigOverride
      * into the container so the service provider shares it.
      *
      * A configuration from config:cache has no markers left: its map is the one the caching application
-     * derived and wrote to "onlineconf.map". A configuration with neither is left alone, and a second call
-     * changes nothing.
+     * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
+     * the same configuration changes nothing — neither the repository nor the registry of immediate reads.
      */
     public static function install(ApplicationContract $app): void
     {
@@ -57,9 +61,11 @@ final class ConfigOverride
     {
         $config = $app->make(Repository::class);
         assert($config instanceof Repository);
-        if ($config instanceof OverridingRepository) {
+        $installed = self::$installed ??= new WeakMap();
+        if ($config instanceof OverridingRepository || isset($installed[$config])) {
             return;
         }
+        $installed[$config] = true;
         $items = $config->all();
         // No markers left means the configuration came from config:cache written by an application that had
         // already resolved them: the map it derived is in the cached array.

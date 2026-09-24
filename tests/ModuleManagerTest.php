@@ -6,6 +6,7 @@ namespace Onlineconf\Laravel\Tests;
 
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Settings;
@@ -120,21 +121,31 @@ final class ModuleManagerTest extends TestCase
 
     public function testAFailedOpenIsRememberedAndNotedOnce(): void
     {
+        // The module directory is reached through a symlink, as a Kubernetes configMap (..data/) or macOS
+        // (/var → /private/var) does: once the file exists its real path differs from the configured one.
+        $real = $this->tempDir() . '/real';
+        mkdir($real, 0o700);
+        $link = sys_get_temp_dir() . '/onlineconf-laravel-link-' . bin2hex(random_bytes(6));
+        symlink($real, $link);
         $log = new TestHandler();
-        $manager = new ModuleManager(new Settings($this->tempDir(), 'TREE'), new Logger('test', [$log]), 0);
+        $manager = new ModuleManager(new Settings($link, 'TREE'), new Logger('test', [$log]), 0);
 
         try {
-            $manager->module();
-            self::fail('there is no module file yet');
-        } catch (OpenException $first) {
-        }
-        $this->writeModule(['/app/name' => 'sdemo']);
+            try {
+                $manager->module();
+                self::fail('there is no module file yet');
+            } catch (OpenException $first) {
+            }
+            CdbWriter::write($real . '/TREE.cdb', ['/app/name' => 'sdemo']);
 
-        try {
-            $manager->module();
-            self::fail('a process that started without the file keeps serving without it');
-        } catch (OpenException $second) {
-            self::assertSame($first, $second, 'the remembered failure, not a new attempt');
+            try {
+                $manager->module();
+                self::fail('a process that started without the file keeps serving without it');
+            } catch (OpenException $second) {
+                self::assertSame($first, $second, 'the remembered failure, not a new attempt');
+            }
+        } finally {
+            unlink($link);
         }
         self::assertCount(1, $log->getRecords());
         self::assertTrue($log->hasDebugThatContains('TREE.cdb'), 'no module is a normal state, not an error');

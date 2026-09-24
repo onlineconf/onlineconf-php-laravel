@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use Illuminate\Support\Facades\Facade;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
+use Onlineconf\Laravel\Console\MapCommand;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\Ref;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 final class ConfigOverrideTest extends TestCase
 {
@@ -185,6 +190,8 @@ final class ConfigOverrideTest extends TestCase
     {
         EagerReads::record('/app/first', Ref::TYPE_STRING, null);
         ConfigOverride::install($this->application());
+        // The next boot loads a new configuration, as the next test of an application's suite does.
+        $this->application()->instance('config', new ConfigRepository($this->config()->all()));
         EagerReads::record('/app/second', Ref::TYPE_STRING, null);
 
         ConfigOverride::install($this->application());
@@ -227,5 +234,53 @@ final class ConfigOverrideTest extends TestCase
         Onlineconf::fake(['/app/name' => 'fake']);
 
         self::assertSame('fake', config('app.name'), 'the fake replaces the remembered failure');
+    }
+
+    public function testARepeatedInstallKeepsTheImmediateReadsOfTheLoad(): void
+    {
+        $base = $this->tempDir() . '/app';
+        mkdir($base . '/config', 0o700, true);
+        file_put_contents($base . '/config/app.php', <<<'APP'
+            <?php
+
+            use Onlineconf\Laravel\Facades\Onlineconf;
+
+            return [
+                'name' => Onlineconf::getString('/probe/eager', 'from config'),
+                'env' => 'testing',
+                'timezone' => 'UTC',
+            ];
+            APP);
+        file_put_contents(
+            $base . '/config/logging.php',
+            "<?php return ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \\Monolog\\Handler\\NullHandler::class]]];",
+        );
+        putenv('ONLINECONF_DIR=' . $this->tempDir());
+        // While LoadConfiguration runs in a real boot no facade application is set yet.
+        Facade::setFacadeApplication(null);
+        $app = new Application($base);
+        try {
+            ConfigOverride::register($app);
+            $app->bootstrapWith([LoadConfiguration::class]);
+
+            ConfigOverride::install($app);
+
+            $command = new MapCommand();
+            $command->setLaravel($app);
+            $output = new BufferedOutput();
+            self::assertSame(0, $command->run(new ArrayInput(['--json' => true]), $output));
+            $listed = json_decode($output->fetch(), true, 512, JSON_THROW_ON_ERROR);
+            self::assertIsArray($listed);
+            self::assertSame(
+                [['path' => '/probe/eager', 'type' => 'string', 'default' => 'from config']],
+                $listed['eager'],
+                'the second install is a no-op for the registry as well',
+            );
+        } finally {
+            putenv('ONLINECONF_DIR');
+            $app->flush();
+            Facade::setFacadeApplication($this->application());
+            Container::setInstance($this->application());
+        }
     }
 }

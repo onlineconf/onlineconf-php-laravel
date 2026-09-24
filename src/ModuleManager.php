@@ -21,7 +21,7 @@ final class ModuleManager
     /** @var array<string, Module> modules by resolved file path */
     private array $modules = [];
 
-    /** @var array<string, OpenException> failed opens by resolved file path, rethrown instead of reopening */
+    /** @var array<string, OpenException> failed opens by configured file name, rethrown instead of reopening */
     private array $failures = [];
 
     public function __construct(
@@ -42,21 +42,25 @@ final class ModuleManager
      */
     public function module(?string $name = null): Module
     {
-        $key = $this->key($name);
+        $file = $this->file($name);
+        // Failures are keyed by the configured name and checked first: a directory reached through a symlink
+        // (a configMap's ..data/) resolves to another path once the file appears, and a machine without a
+        // module should not pay a realpath() on every read.
+        if (isset($this->failures[$file])) {
+            throw $this->failures[$file];
+        }
+        $key = $this->key($file);
         if (isset($this->modules[$key])) {
             return $this->modules[$key];
-        }
-        if (isset($this->failures[$key])) {
-            throw $this->failures[$key];
         }
 
         try {
             return $this->modules[$key] = new Module(self::open($key), $this->logger, $this->checkInterval);
         } catch (OpenException $e) {
-            $this->failures[$key] = $e;
+            $this->failures[$file] = $e;
             $this->logger->debug(sprintf(
                 'OnlineConf module %s cannot be opened, not trying again in this process: %s',
-                $key,
+                $file,
                 $e->getMessage(),
             ));
 
@@ -79,9 +83,9 @@ final class ModuleManager
     public function fake(array $values = [], ?string $name = null): ArraySource
     {
         $source = ArraySource::fromValues($values);
-        $key = $this->key($name);
-        unset($this->failures[$key]);
-        $this->modules[$key] = new Module($source, $this->logger, 0);
+        $file = $this->file($name);
+        unset($this->failures[$file]);
+        $this->modules[$this->key($file)] = new Module($source, $this->logger, 0);
 
         return $source;
     }
@@ -103,11 +107,18 @@ final class ModuleManager
     }
 
     /**
+     * The module file as configured, not resolved: the key of a remembered failure.
+     */
+    private function file(?string $name): string
+    {
+        return $this->settings->fileName($name ?? $this->settings->module);
+    }
+
+    /**
      * Registry key: the real path of the module file, or the unresolved name when the file does not exist.
      */
-    private function key(?string $name): string
+    private function key(string $file): string
     {
-        $file = $this->settings->fileName($name ?? $this->settings->module);
         $key = realpath($file);
 
         return $key === false ? $file : $key;

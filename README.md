@@ -121,7 +121,9 @@ Paths are always full paths. There is no application prefix; use `subtree()` whe
 - Opening the module file happens on the first use (first injection of `Module`, first facade call),
   not at boot. A missing or invalid file throws the client's `OpenException` at that point.
 - **A failed open is remembered for the life of the process** (under Octane, of the application
-  container): it is noted once at `debug` level and every later use rethrows it without touching the disk.
+  container): it is noted once at `debug` level, and every later use rethrows it without any file system
+  call, keyed by the configured file name — so a directory reached through a symlink (a Kubernetes
+  configMap's `..data/`) does not bring the file back in once it appears.
   A worker that started before the module file existed therefore serves the fallbacks of `config/*.php`
   until it restarts — start workers after the tree is delivered, or restart them once it is. `fake()`
   replaces a remembered failure. A file that is simply not there raises no PHP warning, not even a
@@ -216,7 +218,8 @@ wins over the map.
 
 - There is one map and it is derived: `config('onlineconf.map')` holds what the markers declared —
   `['path' => ..., 'type' => ..., 'required' => bool]` per config key — and is what `onlineconf:map` prints.
-  It is output, not input: writing that key by hand changes nothing.
+  It is the package's output; on a boot from `config:cache`, where the markers are already resolved, it is
+  also the input the override is installed from. Writing that key by hand is not supported.
 - Migrate one key at a time by turning `env(...)` into a marker around it.
 - `config:cache` is supported. The caching run boots the application, override included, so the cache holds
   the fallbacks and the derived map; the cached boot installs the override from that map, and the marked
@@ -231,8 +234,8 @@ wins over the map.
   not covered: `config()->all()` — it returns the loaded configuration without substitution (this is what
   keeps `config:cache` safe), so code or packages reading `all()` see the fallbacks.
 - Cost: an unmarked key costs one extra array lookup; a marked key is one `dba_fetch` on first read per
-  process, then the client's cache. Where there is no module at all, the first mapped read notes it once and
-  every later one is a plain array lookup again.
+  process, then the client's cache. Where there is no module at all, the first marked read tries the file
+  once and notes it; every later one costs a lookup of the remembered failure, with no file system call.
 
 ## Naming nodes in config/*.php
 
