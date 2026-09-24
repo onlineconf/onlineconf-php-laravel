@@ -32,7 +32,7 @@ return [
     'on_missing' => null,
 
     // Extra "Laravel config key => OnlineConf node" entries, for keys whose config/*.php you would rather not
-    // touch. The map the override uses is derived from the Onlineconf::ref*() markers in config/*.php and
+    // touch. The map the override uses is derived from the Onlineconf::getRef*() markers in config/*.php and
     // merged with this one — a marker wins over an entry for the same key — and written back here, so
     // config('onlineconf.map') and "php artisan onlineconf:map" always show what is actually read.
     // Both formats are accepted:

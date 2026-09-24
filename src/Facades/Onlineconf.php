@@ -45,7 +45,11 @@ use Onlineconf\Subtree;
  * @method static mixed         getTree(string $path, ?int $maxDepth = null)
  * @method static void          walk(string $path, callable $visitor, ?int $maxDepth = null)
  *
+ * The get*() and require*() calls above read a node now; the getRef*() and requireRef*() constructors below
+ * leave a marker in config/*.php that config() reads on every call. The names mirror each other exactly.
+ *
  * @see Module
+ * @see Ref
  */
 final class Onlineconf extends Facade
 {
@@ -134,79 +138,165 @@ final class Onlineconf extends Facade
     }
 
     /**
-     * A marker for config/*.php read as a string on every config() call; without a fallback the node is required.
+     * A marker for config/*.php read with the client's getString() on every config() call.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refString(string $path, ?string $fallback = null): Ref
+    public static function getRefString(string $path, ?string $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_STRING, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_STRING, $fallback);
     }
 
     /**
-     * A marker read with getInt()/requireInt(); without a fallback the node is required.
+     * A marker for config/*.php read with the client's getInt() on every config() call.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refInt(string $path, ?int $fallback = null): Ref
+    public static function getRefInt(string $path, ?int $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_INT, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_INT, $fallback);
     }
 
     /**
-     * A marker read with getFloat()/requireFloat(); without a fallback the node is required.
+     * A marker for config/*.php read with the client's getFloat() on every config() call.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refFloat(string $path, ?float $fallback = null): Ref
+    public static function getRefFloat(string $path, ?float $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_FLOAT, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_FLOAT, $fallback);
     }
 
     /**
-     * A marker read with getBool()/requireBool(); without a fallback the node is required.
+     * A marker for config/*.php read with the client's getBool() on every config() call.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refBool(string $path, ?bool $fallback = null): Ref
+    public static function getRefBool(string $path, ?bool $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_BOOL, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_BOOL, $fallback);
     }
 
     /**
-     * A marker read with getDuration()/requireDuration(): seconds as a float ("30s", "1m").
+     * A marker for config/*.php read with the client's getDuration() on every config() call.
+     * The node is seconds as a float ("30s", "1m").
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refDuration(string $path, ?float $fallback = null): Ref
+    public static function getRefDuration(string $path, ?float $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_DURATION, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_DURATION, $fallback);
     }
 
     /**
-     * A marker read with getDurationMs()/requireDurationMs(): milliseconds as an int.
+     * A marker for config/*.php read with the client's getDurationMs() on every config() call.
+     * The node is milliseconds as an int.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function refDurationMs(string $path, ?int $fallback = null): Ref
+    public static function getRefDurationMs(string $path, ?int $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_DURATION_MS, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_DURATION_MS, $fallback);
     }
 
     /**
-     * A marker read with getStrings()/requireStrings(): a comma-separated value or a JSON array of strings.
+     * A marker for config/*.php read with the client's getStrings() on every config() call.
+     * The node is a comma-separated value or a JSON array of strings.
+     * The fallback is what config() returns while OnlineConf has no such node.
      *
      * @param list<string>|null $fallback
      */
-    public static function refStrings(string $path, ?array $fallback = null): Ref
+    public static function getRefStrings(string $path, ?array $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_STRINGS, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_STRINGS, $fallback);
     }
 
     /**
-     * A marker read with getArray()/requireArray(): a JSON value.
+     * A marker for config/*.php read with the client's getArray() on every config() call.
+     * The node is a JSON value.
+     * The fallback is what config() returns while OnlineConf has no such node.
      *
      * @param array<mixed>|null $fallback
      */
-    public static function refArray(string $path, ?array $fallback = null): Ref
+    public static function getRefArray(string $path, ?array $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_ARRAY, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_ARRAY, $fallback);
     }
 
     /**
-     * A marker read with get()/require(): the raw value, a string or decoded JSON.
+     * A marker for config/*.php read with the client's get() on every config() call.
+     * The node is the raw value: a string, or decoded JSON.
+     * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function ref(string $path, mixed $fallback = null): Ref
+    public static function getRef(string $path, mixed $fallback): Ref
     {
-        return new Ref($path, Ref::TYPE_RAW, $fallback, func_num_args() < 2);
+        return new Ref($path, Ref::TYPE_RAW, $fallback);
+    }
+
+    /**
+     * A marker read with the client's requireString(): the node must exist, or config() throws.
+     */
+    public static function requireRefString(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_STRING, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireInt(): the node must exist, or config() throws.
+     */
+    public static function requireRefInt(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_INT, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireFloat(): the node must exist, or config() throws.
+     */
+    public static function requireRefFloat(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_FLOAT, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireBool(): the node must exist, or config() throws.
+     */
+    public static function requireRefBool(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_BOOL, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireDuration(): the node must exist, or config() throws.
+     */
+    public static function requireRefDuration(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_DURATION, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireDurationMs(): the node must exist, or config() throws.
+     */
+    public static function requireRefDurationMs(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_DURATION_MS, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireStrings(): the node must exist, or config() throws.
+     */
+    public static function requireRefStrings(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_STRINGS, null, true);
+    }
+
+    /**
+     * A marker read with the client's requireArray(): the node must exist, or config() throws.
+     */
+    public static function requireRefArray(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_ARRAY, null, true);
+    }
+
+    /**
+     * A marker read with the client's require(): the node must exist, or config() throws.
+     */
+    public static function requireRef(string $path): Ref
+    {
+        return new Ref($path, Ref::TYPE_RAW, null, true);
     }
 
     /**

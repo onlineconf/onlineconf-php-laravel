@@ -54,7 +54,7 @@ final class ConfigCacheTest extends TestCase
             use Onlineconf\Laravel\Facades\Onlineconf;
 
             return [
-                'lazy' => Onlineconf::refString('/probe/lazy', 'from config'),
+                'lazy' => Onlineconf::getRefString('/probe/lazy', 'from config'),
                 'eager' => Onlineconf::getString('/probe/eager', 'default'),
             ];
             PROBE);

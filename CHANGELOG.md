@@ -2,12 +2,15 @@
 
 ## 1.2.0 — 2026-09-24
 
-- Nodes are named in `config/*.php` instead of the central map: `Onlineconf::refString()`, `refInt()`,
-  `refFloat()`, `refBool()`, `refDuration()`, `refDurationMs()`, `refStrings()`, `refArray()` and `ref()`
-  leave a `Ref` marker next to the value; `ConfigOverride::install()` replaces every marker with its fallback
-  and derives the map from them. The type is declared by the method, never guessed from the fallback.
-- An omitted fallback makes the node required: the override reads it with `require*`, so the client's
-  exception reaches the caller instead of a silent fallback, and `on_missing` is not called for it.
+- Nodes are named in `config/*.php` instead of the central map: `Onlineconf::getRefString($path, $fallback)`
+  and its siblings `getRefInt()`, `getRefFloat()`, `getRefBool()`, `getRefDuration()`, `getRefDurationMs()`,
+  `getRefStrings()`, `getRefArray()` and `getRef()` leave a `Ref` marker next to the value;
+  `ConfigOverride::install()` replaces every marker with its fallback and derives the map from them. The type
+  is declared by the method, never guessed from the fallback. The names mirror the client's own getters:
+  `getString()` reads now, `getRefString()` refers for later.
+- `requireRefString($path)` and the rest of the `requireRef*()` family take no fallback: the node must exist,
+  the override reads it with the client's `require*`, so the exception reaches the caller instead of a silent
+  fallback, and `on_missing` is not called for it.
 - The facade works during `LoadConfiguration`, before the service providers: `Onlineconf::getString()` and the
   other getters read the module of the process environment, for config files that transform the value. The
   reads are recorded (`EagerReads`) and the misses are reported through `on_missing` with an empty

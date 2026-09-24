@@ -432,7 +432,7 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
             ['/int' => 'eight', '/string' => ['a']],
         );
 
-        self::assertNull($repository->get('int'), 'refInt(path, null): a null fallback is a null fallback');
+        self::assertNull($repository->get('int'), 'getRefInt(path, null): a null fallback is a null fallback');
         self::assertNull($repository->get('string'));
         self::assertCount(2, $this->log->getRecords());
         self::assertTrue($this->log->hasWarningThatContains('/int'));

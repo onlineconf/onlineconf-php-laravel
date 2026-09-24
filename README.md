@@ -59,7 +59,7 @@ when you are done.
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
 | `config_override` | `ONLINECONF_CONFIG_OVERRIDE` | `true` | kill switch of the `config()` override below |
 | `on_missing` | — | `null` | handler for mapped keys absent from OnlineConf: a class name (resolved from the container, invoked with a `MissingValue`) or a Closure; see below |
-| `map` | — | `[]` | extra Laravel config key → OnlineConf node; the map the override uses is **derived** from the `ref*()` markers in `config/*.php` and merged with this one (see below) |
+| `map` | — | `[]` | extra Laravel config key → OnlineConf node; the map the override uses is **derived** from the `getRef*()` markers in `config/*.php` and merged with this one (see below) |
 
 With `dir` and `module` unset the client's own resolution applies: `ONLINECONF_DIR`, `ONLINECONF_CONFIG`
 and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onlineconf.yaml`, then
@@ -237,12 +237,16 @@ wins over the map.
 
 Instead of the central map, a node can be named where the value lives. Two mechanisms, one selection rule:
 
-- **`ref*()` — a lazy reference.** The value stays in the configuration as a marker; `ConfigOverride::install()`
-  replaces it with the fallback and adds it to the map, so every `config()` call reads OnlineConf. Use it when
-  the value is used **as is**.
-- **`get*()` — an immediate read.** The facade reads OnlineConf right there, while `config/*.php` is being
-  loaded, and the plain value lands in the configuration. Use it when the config file **transforms** the value:
-  a cast, `explode()`, string concatenation, a condition.
+- **`getRef*()` / `requireRef*()` — a lazy reference.** The value stays in the configuration as a marker;
+  `ConfigOverride::install()` replaces it with the fallback and adds it to the map, so every `config()` call
+  reads OnlineConf. Use it when the value is used **as is**.
+- **`get*()` / `require*()` — an immediate read.** The facade reads OnlineConf right there, while
+  `config/*.php` is being loaded, and the plain value lands in the configuration. Use it when the config file
+  **transforms** the value: a cast, `explode()`, string concatenation, a condition.
+
+The names mirror each other exactly: `getString()` reads a string now, `getRefString()` refers to it for
+later; `requireString()` reads a node that must exist now, `requireRefString()` refers to one for later. The
+`getRef*()` family always takes a fallback (`null` is a fallback), the `requireRef*()` family never does.
 
 ```php
 // config/services.php
@@ -251,10 +255,10 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 return [
     'mailer' => [
         // lazy: config('services.mailer.host') reads OnlineConf on every call
-        'host'    => Onlineconf::refString('/my/service/mailer/host', env('MAIL_HOST')),
-        'port'    => Onlineconf::refInt('/my/service/mailer/port', 25),
-        'timeout' => Onlineconf::refDuration('/my/service/mailer/timeout', 5.0),
-        'secret'  => Onlineconf::refString('/my/service/mailer/secret'),   // no fallback: the node is required
+        'host'    => Onlineconf::getRefString('/my/service/mailer/host', env('MAIL_HOST')),
+        'port'    => Onlineconf::getRefInt('/my/service/mailer/port', 25),
+        'timeout' => Onlineconf::getRefDuration('/my/service/mailer/timeout', 5.0),
+        'secret'  => Onlineconf::requireRefString('/my/service/mailer/secret'), // no fallback: the node must exist
 
         // immediate: the value is transformed here, so it cannot stay a marker
         'endpoint' => 'https://' . Onlineconf::getString('/my/service/mailer/host', 'localhost') . '/send',
@@ -262,22 +266,22 @@ return [
 ];
 ```
 
-| declared type | lazy marker | immediate read | OnlineConf value |
-|---|---|---|---|
-| `string` | `refString()` | `getString()` / `requireString()` | the `s` value as is |
-| `int` | `refInt()` | `getInt()` / `requireInt()` | an integer |
-| `float` | `refFloat()` | `getFloat()` / `requireFloat()` | a float |
-| `bool` | `refBool()` | `getBool()` / `requireBool()` | `1`/`0`, `true`/`false`, `yes`/`no` |
-| `duration` | `refDuration()` | `getDuration()` / `requireDuration()` | `30s`, `1m` → seconds as a float |
-| `duration_ms` | `refDurationMs()` | `getDurationMs()` / `requireDurationMs()` | the same → milliseconds as an int |
-| `strings` | `refStrings()` | `getStrings()` / `requireStrings()` | `a, b` or a JSON array of strings |
-| `array` | `refArray()` | `getArray()` / `requireArray()` | a `j` value decoded to an array |
-| `raw` | `ref()` | `get()` / `require()` | `s` → string, `j` → decoded JSON |
+| declared type | lazy, with a fallback | lazy, node required | immediate | OnlineConf value |
+|---|---|---|---|---|
+| `string` | `getRefString($p, $f)` | `requireRefString($p)` | `getString()` / `requireString()` | the `s` value as is |
+| `int` | `getRefInt($p, $f)` | `requireRefInt($p)` | `getInt()` / `requireInt()` | an integer |
+| `float` | `getRefFloat($p, $f)` | `requireRefFloat($p)` | `getFloat()` / `requireFloat()` | a float |
+| `bool` | `getRefBool($p, $f)` | `requireRefBool($p)` | `getBool()` / `requireBool()` | `1`/`0`, `true`/`false`, `yes`/`no` |
+| `duration` | `getRefDuration($p, $f)` | `requireRefDuration($p)` | `getDuration()` / `requireDuration()` | `30s`, `1m` → seconds as a float |
+| `duration_ms` | `getRefDurationMs($p, $f)` | `requireRefDurationMs($p)` | `getDurationMs()` / `requireDurationMs()` | the same → milliseconds as an int |
+| `strings` | `getRefStrings($p, $f)` | `requireRefStrings($p)` | `getStrings()` / `requireStrings()` | `a, b` or a JSON array of strings |
+| `array` | `getRefArray($p, $f)` | `requireRefArray($p)` | `getArray()` / `requireArray()` | a `j` value decoded to an array |
+| `raw` | `getRef($p, $f)` | `requireRef($p)` | `get()` / `require()` | `s` → string, `j` → decoded JSON |
 
-The type is what the method declares; it is never guessed from the fallback. `refBool('/my/app/debug', (bool)
-env('APP_DEBUG'))` — the cast keeps the fallback the type its node is.
+The type is what the method declares; it is never guessed from the fallback. `getRefBool('/my/app/debug',
+(bool) env('APP_DEBUG'))` — the cast keeps the fallback the type its node is.
 
-**A marker is not a value.** `(bool) Onlineconf::refBool(...)` is `true` for every marker and `(int)` is `1`,
+**A marker is not a value.** `(bool) Onlineconf::getRefBool(...)` is `true` for every marker and `(int)` is `1`,
 because the cast sees an object, not the node — which is exactly why a cast in the config file means `get*`.
 Using a marker as a string throws a `LogicException` naming the path instead of failing quietly.
 
@@ -287,12 +291,13 @@ consumes (`app.env`, `app.timezone`) are read before the markers are resolved, s
 read as an object. An immediate `get*` works in those files, with the caveat that its own directory comes
 from the environment.
 
-**Required nodes.** An omitted fallback means the node must exist: the override calls `require*` and the
-client's `NotFoundException` (or `FormatException`, `ParseException`) reaches the caller instead of a silent
-fallback. `refString('/my/app/secret', null)` is the other case — a fallback that happens to be `null` — so an
-explicit `null` never makes a node required. A required node that is missing is a configuration error, not a
-migration gap, so the `on_missing` handler is not called for it. Only a module file that cannot be opened is
-still a fallback: it is an availability failure, logged once, and the configuration value is returned.
+**Required nodes.** `requireRefString('/my/app/secret')` and its siblings take no fallback: the node must
+exist, and the override calls the client's `require*`, so `NotFoundException` (or `FormatException`,
+`ParseException`) reaches the caller instead of a silent fallback. `getRefString('/my/app/secret', null)` is
+the other case — a node that may be absent, with `null` as its fallback. A required node that is missing is a
+configuration error, not a migration gap, so the `on_missing` handler is not called for it. Only a module
+file that cannot be opened is still a fallback: it is an availability failure, logged once, and the
+configuration value is returned.
 
 The exception also surfaces on an ancestor read: `config('database')` reads every mapped key below it, so a
 missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
@@ -313,7 +318,7 @@ of the declared type.
 `get*()` in `config/*.php` runs before the service providers, so the facade cannot use the container:
 
 - **The value is fixed for the life of the process** and is baked into `config:cache`. A node that changes
-  while a worker runs is not picked up — use `ref*()` for anything that should follow the tree.
+  while a worker runs is not picked up — use `getRef*()` for anything that should follow the tree.
 - **The module directory comes from the process environment** (`ONLINECONF_DIR`, `ONLINECONF_CONFIG`,
   `CDB_CONFIG_FILE`, then the client's defaults), not from `config/onlineconf.php`, which is not loaded yet.
   `.env` is already loaded at that point, so `ONLINECONF_DIR` in `.env` works; `onlineconf.dir` does not.

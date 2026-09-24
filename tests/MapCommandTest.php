@@ -41,8 +41,8 @@ final class MapCommandTest extends TestCase
     private function install(): void
     {
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
-        $this->config()->set('app.secret', Onlineconf::refString('/app/secret'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        $this->config()->set('app.secret', Onlineconf::requireRefString('/app/secret'));
         $this->config()->set('services.queue.workers', 2);
         $this->config()->set('onlineconf.map', ['services.queue.workers' => '/app/workers']);
         ConfigOverride::install($this->application());

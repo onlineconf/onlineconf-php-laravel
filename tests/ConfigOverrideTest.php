@@ -213,10 +213,10 @@ final class ConfigOverrideTest extends TestCase
             '/app/workers' => 's8',
             '/app/ttl' => 's1m',
         ]);
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('services.queue', [
-            'workers' => Onlineconf::refInt('/app/workers', 2),
-            'ttl' => Onlineconf::refDuration('/app/ttl', 5.0),
+            'workers' => Onlineconf::getRefInt('/app/workers', 2),
+            'ttl' => Onlineconf::getRefDuration('/app/ttl', 5.0),
             'driver' => 'sync',
         ]);
 
@@ -246,7 +246,7 @@ final class ConfigOverrideTest extends TestCase
     public function testMarkersAreReplacedEvenWhenTheOverrideIsOff(): void
     {
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('onlineconf.config_override', false);
         $before = $this->config();
 
@@ -264,8 +264,8 @@ final class ConfigOverrideTest extends TestCase
     public function testMarkerWithoutAFallbackRequiresTheNode(): void
     {
         $this->useModule(['/app/secret' => 'svalue']);
-        $this->config()->set('app.secret', Onlineconf::refString('/app/secret'));
-        $this->config()->set('app.gone', Onlineconf::refString('/app/gone'));
+        $this->config()->set('app.secret', Onlineconf::requireRefString('/app/secret'));
+        $this->config()->set('app.gone', Onlineconf::requireRefString('/app/gone'));
 
         ConfigOverride::install($this->application());
 
@@ -282,7 +282,7 @@ final class ConfigOverrideTest extends TestCase
     public function testExplicitMapIsNormalisedAndMarkersWin(): void
     {
         $this->useModule(['/app/name' => 'sFrom OnlineConf', '/app/other' => 's7']);
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('onlineconf.map', [
             'app.name' => '/app/ignored',
             'app.legacy' => '/app/other',
@@ -371,9 +371,9 @@ final class ConfigOverrideTest extends TestCase
     {
         $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
         $this->config()->set('onlineconf.log_channel', 'probe');
-        $this->config()->set('app.secret', Onlineconf::refString('/app/secret'));
-        $this->config()->set('app.token', Onlineconf::refString('/app/token'));
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('app.secret', Onlineconf::requireRefString('/app/secret'));
+        $this->config()->set('app.token', Onlineconf::requireRefString('/app/token'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('onlineconf.config_override', false);
 
         ConfigOverride::install($this->application());
@@ -391,7 +391,7 @@ final class ConfigOverrideTest extends TestCase
     {
         $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
         $this->config()->set('onlineconf.log_channel', 'probe');
-        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('onlineconf.config_override', false);
 
         ConfigOverride::install($this->application());
@@ -430,7 +430,7 @@ final class ConfigOverrideTest extends TestCase
     {
         $this->useModule(['/servers/0/host' => 'sfrom OnlineConf']);
         $this->config()->set('servers', [
-            ['host' => Onlineconf::refString('/servers/0/host', 'from config'), 'port' => 5432],
+            ['host' => Onlineconf::getRefString('/servers/0/host', 'from config'), 'port' => 5432],
         ]);
 
         ConfigOverride::install($this->application());

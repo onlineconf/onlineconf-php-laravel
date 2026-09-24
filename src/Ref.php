@@ -9,11 +9,11 @@ use LogicException;
 /**
  * A reference to an OnlineConf node, written in config/*.php in place of the value:
  *
- *     'debug' => \Onlineconf\Laravel\Facades\Onlineconf::refBool('/my/app/debug', (bool) env('APP_DEBUG')),
+ *     'debug' => \Onlineconf\Laravel\Facades\Onlineconf::getRefBool('/my/app/debug', (bool) env('APP_DEBUG')),
  *
  * {@see ConfigOverride::install()} takes every marker out of the loaded configuration, leaves the fallback
  * in its place and adds the node to the map the config() override reads from. The type is what the marker
- * declares, never guessed from the fallback; a marker without a fallback means the node must exist.
+ * declares, never guessed from the fallback; a requireRef*() marker means the node must exist.
  */
 final class Ref
 {
@@ -44,7 +44,8 @@ final class Ref
      * @param string $path     the OnlineConf path, e.g. "/my/app/debug"
      * @param string $type     one of {@see Ref::TYPES}; picks the getter the override calls
      * @param mixed  $fallback the value config() returns when OnlineConf has no such node
-     * @param bool   $required the node must exist: the client's exception is thrown instead of a fallback
+     * @param bool   $required from requireRef*(): the node must exist, and the client's exception is thrown
+     *                        instead of a fallback
      */
     public function __construct(
         public readonly string $path,
@@ -63,7 +64,7 @@ final class Ref
     public function __toString(): string
     {
         throw new LogicException(sprintf(
-            'Onlineconf::ref*() marker for %s used as a value; use Onlineconf::get*() when the config transforms the value',
+            'Onlineconf::getRef*() marker for %s used as a value; use Onlineconf::get*() when the config transforms the value',
             $this->path,
         ));
     }
