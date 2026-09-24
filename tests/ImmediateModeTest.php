@@ -33,7 +33,7 @@ final class ImmediateModeTest extends TestCase
     protected function tearDown(): void
     {
         putenv('ONLINECONF_DIR');
-        putenv('ONLINECONF_CONFIG_OVERRIDE');
+        self::forgetKillSwitch();
         EagerReads::flush();
         ImmediateModule::flush();
         if ($this->bare !== null) {
@@ -108,7 +108,7 @@ final class ImmediateModeTest extends TestCase
     public function testKillSwitchEmptiesTheImmediateModule(): void
     {
         $this->beforeProviders();
-        putenv('ONLINECONF_CONFIG_OVERRIDE=false');
+        self::setKillSwitch('false');
         ImmediateModule::flush();
 
         self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'get* fall back to their defaults');
@@ -189,5 +189,22 @@ final class ImmediateModeTest extends TestCase
         ConfigOverride::install($this->application());
 
         self::assertNotSame($before, ImmediateModule::module(), 'the handle of the config load is not kept open');
+    }
+
+    /**
+     * env() reads $_ENV and $_SERVER always and getenv() only while Dotenv's putenv adapter is on — Testbench
+     * turns it off while it builds the application, so the test sets all three, as a real .env file does.
+     */
+    private static function setKillSwitch(string $value): void
+    {
+        putenv('ONLINECONF_CONFIG_OVERRIDE=' . $value);
+        $_ENV['ONLINECONF_CONFIG_OVERRIDE'] = $value;
+        $_SERVER['ONLINECONF_CONFIG_OVERRIDE'] = $value;
+    }
+
+    private static function forgetKillSwitch(): void
+    {
+        putenv('ONLINECONF_CONFIG_OVERRIDE');
+        unset($_ENV['ONLINECONF_CONFIG_OVERRIDE'], $_SERVER['ONLINECONF_CONFIG_OVERRIDE']);
     }
 }

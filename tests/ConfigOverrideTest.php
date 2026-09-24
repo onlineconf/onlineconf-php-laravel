@@ -425,4 +425,20 @@ final class ConfigOverrideTest extends TestCase
         self::assertCount(1, $reads, 'a process that boots many applications does not grow a list of reads');
         self::assertSame('/app/second', $reads[0]->path);
     }
+
+    public function testAMarkerUnderANumericKey(): void
+    {
+        $this->useModule(['/servers/0/host' => 'sfrom OnlineConf']);
+        $this->config()->set('servers', [
+            ['host' => Onlineconf::refString('/servers/0/host', 'from config'), 'port' => 5432],
+        ]);
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame('from OnlineConf', config('servers.0.host'));
+        self::assertSame([['host' => 'from OnlineConf', 'port' => 5432]], config('servers'), 'the list keeps its shape');
+        $map = config('onlineconf.map');
+        self::assertIsArray($map);
+        self::assertSame(['path' => '/servers/0/host', 'type' => Ref::TYPE_STRING, 'required' => false], $map['servers.0.host'] ?? null);
+    }
 }
