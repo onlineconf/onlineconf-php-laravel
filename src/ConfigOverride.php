@@ -43,7 +43,8 @@ final class ConfigOverride
      * When the override is enabled and the map is not empty, the "config" repository is replaced with an
      * {@see OverridingRepository}; the module manager it uses is put into the container so the service
      * provider shares it. Reads that already happened while config/*.php was loading ({@see EagerReads})
-     * are reported to the on_missing handler here.
+     * are reported to the on_missing handler here, map or no map; with the kill switch off nothing is
+     * reported, because immediate reads were switched off too and every one of them "missed".
      */
     public static function install(ApplicationContract $app): void
     {
@@ -53,15 +54,22 @@ final class ConfigOverride
         $map = self::derive($items) + MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
         Arr::set($items, 'onlineconf.map', $map);
 
-        if (!(bool) Arr::get($items, 'onlineconf.config_override', true) || $map === []) {
+        if (!(bool) Arr::get($items, 'onlineconf.config_override', true)) {
             self::writeBack($config, $items);
+
+            return;
+        }
+
+        $onMissing = self::onMissing($app, Arr::get($items, 'onlineconf.on_missing'));
+        if ($map === []) {
+            self::writeBack($config, $items);
+            self::reportEagerReads($onMissing);
 
             return;
         }
 
         $manager = ModuleManagerFactory::fromContainer($app);
         $app->instance(ModuleManager::class, $manager);
-        $onMissing = self::onMissing($app, Arr::get($items, 'onlineconf.on_missing'));
 
         $app->instance('config', new OverridingRepository(
             $items,

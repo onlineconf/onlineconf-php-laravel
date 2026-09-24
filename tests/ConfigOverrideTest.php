@@ -321,4 +321,28 @@ final class ConfigOverrideTest extends TestCase
 
         self::assertCount(1, RecordingHandler::$missing, 'a second install reports nothing twice');
     }
+
+    public function testReadsFromConfigLoadingAreReportedWithoutAnyMap(): void
+    {
+        EagerReads::record('/app/eager', Ref::TYPE_STRING, 'dflt', true, 'TREE');
+        $this->config()->set('onlineconf.on_missing', RecordingHandler::class);
+        $before = $this->config();
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame($before, $this->config(), 'no map, no override');
+        self::assertCount(1, RecordingHandler::$missing, 'the immediate read is still a migration gap');
+        self::assertSame('/app/eager', RecordingHandler::$missing[0]->path);
+    }
+
+    public function testTheKillSwitchReportsNothing(): void
+    {
+        EagerReads::record('/app/eager', Ref::TYPE_STRING, 'dflt', true, 'TREE');
+        $this->config()->set('onlineconf.on_missing', RecordingHandler::class);
+        $this->config()->set('onlineconf.config_override', false);
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame([], RecordingHandler::$missing, 'immediate reads were switched off, so they all "missed"');
+    }
 }

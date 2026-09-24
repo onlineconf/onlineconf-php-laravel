@@ -372,8 +372,8 @@ of a module taken from a real environment; production modules are written by `on
 ## Compatibility
 
 The package uses only framework APIs that are identical in Laravel 10, 11 and 12 (`singletonIf`, `bind`,
-`mergeConfigFrom`, `publishes`, `commands`, `AboutCommand::add`, `afterBootstrapping`, facades, the
-`Illuminate\Config\Repository` base class). CI runs the test suite against
+`mergeConfigFrom`, `publishes`, `commands`, `AboutCommand::add`, `afterBootstrapping`, facades, `env()`,
+`Arr`, `Command::table()`, the `Illuminate\Config\Repository` base class). CI runs the test suite against
 all three majors, with PHPStan deprecation rules and PHPUnit `failOnDeprecation` on, so a deprecated API
 fails the build rather than the upgrade.
 
