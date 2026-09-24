@@ -6,6 +6,7 @@ namespace Onlineconf\Laravel\Facades;
 
 use Illuminate\Support\Facades\Facade;
 use Onlineconf\Laravel\ModuleManager;
+use Onlineconf\Laravel\Ref;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
 use Onlineconf\Subtree;
@@ -48,6 +49,82 @@ final class Onlineconf extends Facade
     protected static function getFacadeAccessor(): string
     {
         return Module::class;
+    }
+
+    /**
+     * A marker for config/*.php read as a string on every config() call; without a fallback the node is required.
+     */
+    public static function refString(string $path, ?string $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_STRING, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getInt()/requireInt(); without a fallback the node is required.
+     */
+    public static function refInt(string $path, ?int $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_INT, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getFloat()/requireFloat(); without a fallback the node is required.
+     */
+    public static function refFloat(string $path, ?float $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_FLOAT, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getBool()/requireBool(); without a fallback the node is required.
+     */
+    public static function refBool(string $path, ?bool $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_BOOL, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getDuration()/requireDuration(): seconds as a float ("30s", "1m").
+     */
+    public static function refDuration(string $path, ?float $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_DURATION, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getDurationMs()/requireDurationMs(): milliseconds as an int.
+     */
+    public static function refDurationMs(string $path, ?int $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_DURATION_MS, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getStrings()/requireStrings(): a comma-separated value or a JSON array of strings.
+     *
+     * @param list<string>|null $fallback
+     */
+    public static function refStrings(string $path, ?array $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_STRINGS, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with getArray()/requireArray(): a JSON value.
+     *
+     * @param array<mixed>|null $fallback
+     */
+    public static function refArray(string $path, ?array $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_ARRAY, $fallback, func_num_args() < 2);
+    }
+
+    /**
+     * A marker read with get()/require(): the raw value, a string or decoded JSON.
+     */
+    public static function ref(string $path, mixed $fallback = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_RAW, $fallback, func_num_args() < 2);
     }
 
     /**
