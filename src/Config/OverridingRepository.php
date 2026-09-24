@@ -9,6 +9,7 @@ use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
 use Onlineconf\Exception\FormatException;
 use Onlineconf\Exception\InvalidJsonException;
+use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Exception\ParseException;
 use Onlineconf\Laravel\CallSite;
@@ -200,6 +201,12 @@ final class OverridingRepository extends Repository
             return $entry['type'] === null
                 ? self::readByFallback($module, $path, $fallback)
                 : $this->readTyped($module, $entry['type'], $path, $fallback);
+        } catch (NotFoundException) {
+            // has() and the read each check the file for updates, so the node can be gone by now; for an
+            // optional key that is a miss like any other, not an exception.
+            $this->reportMissing($key, $path, $fallback, $module);
+
+            return $fallback;
         } catch (InvalidJsonException $e) {
             $this->logger->error(sprintf(
                 'OnlineConf value at %s is not valid JSON, config() falls back to the loaded configuration: %s',
@@ -231,7 +238,7 @@ final class OverridingRepository extends Repository
      * of that very type and the fallback from config/*.php may be of any type — including null. A value that
      * does not parse as the declared type is a warning (in the client's own wording) and the real fallback.
      *
-     * @throws InvalidJsonException
+     * @throws InvalidJsonException|NotFoundException when the node vanished since the caller checked
      */
     private function readTyped(Module $module, string $type, string $path, mixed $fallback): mixed
     {

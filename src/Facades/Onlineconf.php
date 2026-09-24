@@ -104,9 +104,10 @@ final class Onlineconf extends Facade
     {
         $type = self::READS[$method] ?? null;
         $optional = $type !== null && !str_starts_with($method, 'require');
-        // Named arguments reach __callStatic() keyed by name; the order they were written in is what counts.
+        // Named arguments reach __callStatic() keyed by name, in the order they were written; the names are
+        // the client's own, so they identify the two arguments whatever order they came in.
         $positional = array_values($args);
-        $default = $optional ? ($positional[1] ?? null) : null;
+        $default = $optional ? ($args['default'] ?? $positional[1] ?? null) : null;
 
         try {
             $module = ImmediateModule::module();
@@ -121,7 +122,7 @@ final class Onlineconf extends Facade
             return $default;
         }
 
-        $path = $positional[0] ?? null;
+        $path = $args['path'] ?? $positional[0] ?? null;
         if ($type !== null && is_string($path)) {
             EagerReads::record($path, $type, $default, !$module->has($path), $module->name());
         }

@@ -281,9 +281,11 @@ env('APP_DEBUG'))` — the cast keeps the fallback the type its node is.
 because the cast sees an object, not the node — which is exactly why a cast in the config file means `get*`.
 Using a marker as a string throws a `LogicException` naming the path instead of failing quietly.
 
-**Markers do not belong in `config/onlineconf.php`.** `dir`, `module`, `log_channel` and the rest are read
-before the markers are resolved, so a marker there would be read as an object. An immediate `get*` works in
-that file, with the caveat that its own directory comes from the environment.
+**Markers do not belong in `config/onlineconf.php`, `app.env` or `app.timezone`.** The package's own settings
+(`dir`, `module`, `log_channel`, `check_interval`, `config_override`) and the keys `LoadConfiguration` itself
+consumes (`app.env`, `app.timezone`) are read before the markers are resolved, so a marker there would be
+read as an object. An immediate `get*` works in those files, with the caveat that its own directory comes
+from the environment.
 
 **Required nodes.** An omitted fallback means the node must exist: the override calls `require*` and the
 client's `NotFoundException` (or `FormatException`, `ParseException`) reaches the caller instead of a silent
@@ -298,7 +300,9 @@ missing required node throws there as well, not only on `config('database.connec
 With `ONLINECONF_CONFIG_OVERRIDE=false` nothing is read, so a required marker leaves `null` in the
 configuration. `ConfigOverride::install()` logs one warning naming those keys —
 `OnlineConf override is disabled; required nodes fall back to null: app.secret, …` — so the `null` is not
-silent. Immediate `require*` calls throw `NotFoundException` under the same switch.
+silent. Immediate `require*` calls throw `NotFoundException` under the same switch. That warning resolves
+`log_channel` at install time, before service providers register, so the caveat above applies here too: a
+channel whose driver is registered by `Log::extend()` in a provider cannot receive it.
 
 When the node exists but does not parse as the declared type, the value from `config/*.php` is returned as it
 is — including `null` — and the client's warning is logged. The fallback is never replaced by an empty value

@@ -166,11 +166,14 @@ final class ImmediateModeTest extends TestCase
         $this->beforeProviders();
 
         self::assertSame('From OnlineConf', Onlineconf::getString(path: '/app/name', default: 'dflt'));
+        self::assertSame('From OnlineConf', Onlineconf::getString(default: 'other', path: '/app/name'));
 
         $reads = EagerReads::all();
-        self::assertCount(1, $reads);
+        self::assertCount(2, $reads);
         self::assertSame('/app/name', $reads[0]->path);
         self::assertSame('dflt', $reads[0]->default);
+        self::assertSame('/app/name', $reads[1]->path, 'the names identify the arguments, not their order');
+        self::assertSame('other', $reads[1]->default);
     }
 
     public function testTheFacadeWorksWithoutAnApplication(): void

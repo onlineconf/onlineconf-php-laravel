@@ -12,6 +12,7 @@ use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\MissingValue;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\VanishingSource;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -510,5 +511,24 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
             ],
             $repository->map(),
         );
+    }
+
+    public function testANodeThatDisappearsBetweenTheCheckAndTheReadIsAMiss(): void
+    {
+        $reported = [];
+        $module = new Module(new VanishingSource('stext'), $this->logger, 0);
+        $repository = new OverridingRepository(
+            ['node' => 'dflt'],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING]]),
+            static fn (): Module => $module,
+            $this->logger,
+            $this->recording($reported),
+        );
+
+        self::assertSame('dflt', $repository->get('node'), 'an optional key never throws');
+        self::assertCount(1, $reported);
+        self::assertSame('node', $reported[0]->configKey);
+        self::assertFalse($this->log->hasWarningRecords(), 'a vanished node is a miss, not a format error');
+        self::assertFalse($this->log->hasErrorRecords());
     }
 }
