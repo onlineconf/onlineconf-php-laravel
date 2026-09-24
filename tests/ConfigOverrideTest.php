@@ -193,4 +193,27 @@ final class ConfigOverrideTest extends TestCase
         self::assertCount(1, $reads, 'a process that boots many applications does not grow a list of reads');
         self::assertSame('/app/second', $reads[0]->path);
     }
+
+    public function testALoadWithoutImmediateReadsLeavesNone(): void
+    {
+        EagerReads::record('/app/first', Ref::TYPE_STRING, null);
+        ConfigOverride::install($this->application());
+
+        EagerReads::trim();
+
+        self::assertSame([], EagerReads::all(), 'the previous load does not linger');
+    }
+
+    public function testASecondInstallChangesNothing(): void
+    {
+        $this->useModule(['/app/name' => 'sFrom OnlineConf']);
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        ConfigOverride::install($this->application());
+        $installed = $this->config();
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame($installed, $this->config());
+        self::assertSame('From OnlineConf', config('app.name'));
+    }
 }

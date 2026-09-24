@@ -9,6 +9,7 @@ use Illuminate\Contracts\Foundation\Application as ApplicationContract;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Arr;
+use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Module;
 
@@ -33,11 +34,13 @@ final class ConfigOverride
 
     /**
      * Takes every {@see Ref} marker out of the loaded configuration, leaving its fallback behind, and writes
-     * the map the markers declare to "onlineconf.map", where {@see Console\MapCommand} reads it — that key is
-     * output, not input. The "config" repository is then replaced with an {@see OverridingRepository}, and the
-     * module manager it uses is put into the container so the service provider shares it.
+     * the map the markers declare to "onlineconf.map", where {@see Console\MapCommand} reads it. The "config"
+     * repository is then replaced with an {@see OverridingRepository}, and the module manager it uses is put
+     * into the container so the service provider shares it.
      *
-     * A configuration without markers is left alone: there is nothing to override.
+     * A configuration from config:cache has no markers left: its map is the one the caching application
+     * derived and wrote to "onlineconf.map". A configuration with neither is left alone, and a second call
+     * changes nothing.
      */
     public static function install(ApplicationContract $app): void
     {
@@ -54,8 +57,16 @@ final class ConfigOverride
     {
         $config = $app->make(Repository::class);
         assert($config instanceof Repository);
+        if ($config instanceof OverridingRepository) {
+            return;
+        }
         $items = $config->all();
+        // No markers left means the configuration came from config:cache written by an application that had
+        // already resolved them: the map it derived is in the cached array.
         $map = self::derive($items);
+        if ($map === []) {
+            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
+        }
         Arr::set($items, 'onlineconf.map', $map);
         EagerReads::trim();
 

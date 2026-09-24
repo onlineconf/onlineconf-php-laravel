@@ -10,13 +10,18 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Facade;
+use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
+use Onlineconf\Laravel\Console\MapCommand;
 use Onlineconf\Laravel\EagerReads;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
- * config:cache writes the loaded configuration with var_export(). Markers survive it through
- * Ref::__set_state() (the caching application does not install the override), an immediate read is baked in
- * as the plain value it returned, and the override works on top of the cached array.
+ * config:cache writes the loaded configuration with var_export(). An application that installs the override
+ * caches the fallbacks and the derived map, and the cached boot installs the override from that map. One that
+ * does not install it caches the markers themselves, which Ref::__set_state() restores. Either way an
+ * immediate read is baked in as the plain value it returned.
  */
 final class ConfigCacheTest extends TestCase
 {
@@ -67,6 +72,8 @@ final class ConfigCacheTest extends TestCase
         self::assertStringContainsString('Onlineconf\\Laravel\\Ref::__set_state', $contents, 'the marker is cached, not its value');
         self::assertStringContainsString('read at load time', $contents, 'the immediate read is baked in');
 
+        // In this test config:cache ran in the same PHP process and its skeleton does not install the override,
+        // so its immediate read is still registered; a real config:cache is a separate process.
         EagerReads::flush();
         $app = new Application($base);
         ConfigOverride::register($app);
@@ -90,4 +97,72 @@ final class ConfigCacheTest extends TestCase
         }
     }
 
+    public function testAnApplicationThatInstallsTheOverrideKeepsItAcrossTheCache(): void
+    {
+        $this->writeModule(['/probe/lazy' => 'sfrom OnlineConf']);
+        $base = $this->tempDir() . '/app';
+        mkdir($base . '/config', 0o700, true);
+        mkdir($base . '/bootstrap/cache', 0o700, true);
+        file_put_contents($base . '/config/app.php', <<<'APP'
+            <?php
+
+            use Onlineconf\Laravel\Facades\Onlineconf;
+
+            return [
+                'name' => Onlineconf::getRefString('/probe/lazy', 'from config'),
+                'env' => 'testing',
+                'timezone' => 'UTC',
+            ];
+            APP);
+        file_put_contents(
+            $base . '/config/logging.php',
+            "<?php return ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \\Monolog\\Handler\\NullHandler::class]]];",
+        );
+        file_put_contents(
+            $base . '/config/onlineconf.php',
+            sprintf("<?php return ['dir' => %s, 'check_interval' => 0];", var_export($this->tempDir(), true)),
+        );
+
+        // What config:cache does in an application whose bootstrap/app.php registers the override: it boots
+        // that application and writes all() of its configuration with var_export().
+        $caching = $this->boot($base);
+        $cache = $caching->getCachedConfigPath();
+        $loaded = $caching->make(Repository::class);
+        assert($loaded instanceof Repository);
+        file_put_contents($cache, '<?php return ' . var_export($loaded->all(), true) . ';' . PHP_EOL);
+        $caching->flush();
+        $contents = file_get_contents($cache);
+        self::assertIsString($contents);
+        self::assertStringNotContainsString('__set_state', $contents, 'the caching application resolved its markers');
+
+        $cached = $this->boot($base);
+        try {
+            self::assertTrue($cached->configurationIsCached());
+            $config = $cached->make(Repository::class);
+            self::assertInstanceOf(OverridingRepository::class, $config, 'the override is installed from the cached map');
+            self::assertSame('from OnlineConf', $config->get('app.name'));
+
+            $command = new MapCommand();
+            $command->setLaravel($cached);
+            $output = new BufferedOutput();
+            self::assertSame(0, $command->run(new ArrayInput(['--json' => true]), $output));
+            $listed = json_decode($output->fetch(), true, 512, JSON_THROW_ON_ERROR);
+            self::assertIsArray($listed);
+            self::assertSame(
+                ['app.name' => ['path' => '/probe/lazy', 'type' => 'string', 'required' => false, 'fallback' => 'from config']],
+                $listed['map'],
+            );
+        } finally {
+            $cached->flush();
+        }
+    }
+
+    private function boot(string $base): Application
+    {
+        $app = new Application($base);
+        ConfigOverride::register($app);
+        $app->bootstrapWith([LoadConfiguration::class]);
+
+        return $app;
+    }
 }

@@ -30,15 +30,12 @@ final class EagerReads
     }
 
     /**
-     * Keeps only the reads of the configuration load that has just finished: a process that boots one
-     * application per test would otherwise collect the reads of every boot.
+     * Keeps only the reads of the configuration load that has just finished — none, if it made none: a
+     * process that boots one application per test would otherwise collect the reads of every boot.
      */
     public static function trim(): void
     {
-        $current = array_slice(self::$reads, self::$kept);
-        if ($current !== []) {
-            self::$reads = $current;
-        }
+        self::$reads = array_slice(self::$reads, self::$kept);
         self::$kept = count(self::$reads);
     }
 
