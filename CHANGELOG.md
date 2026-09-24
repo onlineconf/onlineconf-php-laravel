@@ -25,6 +25,9 @@
 
 ### Changed
 
+- The `config()` override and the immediate reads are off unless `ONLINECONF_CONFIG_OVERRIDE` is set to a
+  truthy value; 1.1 defaulted to on. One variable governs both mechanisms, so they can never disagree, and an
+  application that has not enabled it reads nothing from OnlineConf through `config()`.
 - `config('onlineconf.map')` after the install is always the normalised
   `['path' => ..., 'type' => ...|null, 'required' => bool]` shape, with the kill switch off as well.
 - `ConfigOverride::install()` replaces the markers in the configuration even when the override is disabled,

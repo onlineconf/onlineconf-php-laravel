@@ -29,6 +29,9 @@ final class ConfigOverrideTest extends TestCase
         parent::setUp();
         RecordingHandler::$missing = [];
         EagerReads::flush();
+        // The package default is off (ONLINECONF_CONFIG_OVERRIDE unset); these tests are about what the
+        // override does when it is on, and the ones about the kill switch set it to false themselves.
+        $this->config()->set('onlineconf.config_override', true);
     }
 
     public function testInstallReplacesTheRepositoryAndReadsMappedKeys(): void

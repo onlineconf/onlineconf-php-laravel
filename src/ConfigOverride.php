@@ -65,7 +65,7 @@ final class ConfigOverride
         $map = self::derive($items) + MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
         Arr::set($items, 'onlineconf.map', $map);
 
-        if (!(bool) Arr::get($items, 'onlineconf.config_override', true)) {
+        if (!(bool) Arr::get($items, 'onlineconf.config_override', false)) {
             self::writeBack($config, $items);
             self::warnAboutRequired($app, $items, $map);
 

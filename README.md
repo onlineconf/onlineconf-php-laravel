@@ -26,6 +26,7 @@ listing only, the library never reads it. Point the package at that directory an
 
 ```sh
 export ONLINECONF_DIR=$PWD/vendor/onlineconf/onlineconf/examples/onlineconf
+export ONLINECONF_CONFIG_OVERRIDE=true                           # needed for the config() override below
 php artisan onlineconf:get /app/hosts/main                       # www.example.com
 php artisan onlineconf:get --tree /app/nginx/anti-ddos           # pretty JSON of the subtree
 php artisan onlineconf:get --json /app/services/billing/admin_emails | jq .
@@ -44,8 +45,9 @@ and this map in `config/onlineconf.php`:
 ```
 
 `config('session.lifetime')` returns the integer `7200` and `config('app.debug')` returns `false`, while
-every unmapped key keeps its value from `config/*.php`. Unset `ONLINECONF_DIR` (or set it in `.env`)
-when you are done.
+every unmapped key keeps its value from `config/*.php`. Without `ONLINECONF_CONFIG_OVERRIDE` nothing is read
+from OnlineConf and every key keeps its configured value. Unset both variables (or set them in `.env`) when
+you are done.
 
 ## Configuration
 
@@ -57,7 +59,7 @@ when you are done.
 | `module` | `ONLINECONF_MODULE` | `null` | default module: a name (`TREE`) or a file path; `null` = client default |
 | `check_interval` | `ONLINECONF_CHECK_INTERVAL` | `5` | seconds between `stat()` checks for updates, `0` = every access |
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
-| `config_override` | `ONLINECONF_CONFIG_OVERRIDE` | `true` | kill switch of the `config()` override below |
+| `config_override` | `ONLINECONF_CONFIG_OVERRIDE` | `false` | switch of the `config()` override and of the immediate reads below; unset means off |
 | `on_missing` | — | `null` | handler for mapped keys absent from OnlineConf: a class name (resolved from the container, invoked with a `MissingValue`) or a Closure; see below |
 | `map` | — | `[]` | extra Laravel config key → OnlineConf node; the map the override uses is **derived** from the `getRef*()` markers in `config/*.php` and merged with this one (see below) |
 
@@ -213,7 +215,9 @@ means `getArray` (a JSON value in OnlineConf), a string means `getString`, `null
 `config('services')` as a whole includes the mapped keys under it; an explicit `config()->set()` at runtime
 wins over the map.
 
-- Migrate one key at a time; `ONLINECONF_CONFIG_OVERRIDE=false` in `.env` turns the whole override off.
+- The override reads OnlineConf only where `ONLINECONF_CONFIG_OVERRIDE` is set to a truthy value; unset — the
+  state of an application that has not enabled it yet — means off, and so does `ONLINECONF_CONFIG_OVERRIDE=false`
+  in `.env`. Turn it on per environment, then migrate one key at a time.
 - The explicit map lives in the application's published `config/onlineconf.php`: at the moment the override is
   installed, package defaults are not merged yet, so an unpublished config means no explicit entries. Markers
   in `config/*.php` (next section) need no published config file.
@@ -302,7 +306,7 @@ configuration value is returned.
 The exception also surfaces on an ancestor read: `config('database')` reads every mapped key below it, so a
 missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
 
-With `ONLINECONF_CONFIG_OVERRIDE=false` nothing is read, so a required marker leaves `null` in the
+With `ONLINECONF_CONFIG_OVERRIDE` unset or false nothing is read, so a required marker leaves `null` in the
 configuration. `ConfigOverride::install()` logs one warning naming those keys —
 `OnlineConf override is disabled; required nodes fall back to null: app.secret, …` — so the `null` is not
 silent. Immediate `require*` calls throw `NotFoundException` under the same switch. That warning resolves
@@ -322,8 +326,9 @@ of the declared type.
 - **The module directory comes from the process environment** (`ONLINECONF_DIR`, `ONLINECONF_CONFIG`,
   `CDB_CONFIG_FILE`, then the client's defaults), not from `config/onlineconf.php`, which is not loaded yet.
   `.env` is already loaded at that point, so `ONLINECONF_DIR` in `.env` works; `onlineconf.dir` does not.
-- **`ONLINECONF_CONFIG_OVERRIDE=false` switches immediate reads off too**: `get*` return their defaults and
-  `require*` throw `NotFoundException`.
+- **The same switch governs immediate reads**: with `ONLINECONF_CONFIG_OVERRIDE` unset or false, `get*`
+  return their defaults and `require*` throw `NotFoundException`. Both mechanisms read one variable, so they
+  can never disagree about whether this process talks to OnlineConf.
 - **A module file that cannot be opened does not stop the boot**: `get*` return their defaults, exactly as
   `config()` does on the lazy path, and `ConfigOverride::install()` logs the failure once through the
   configured log channel. `require*` still throw the client's `OpenException` — a required node cannot be

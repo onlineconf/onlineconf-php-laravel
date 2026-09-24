@@ -57,6 +57,7 @@ final class ImmediateModeTest extends TestCase
             ]);
         }
         putenv('ONLINECONF_DIR=' . $this->tempDir());
+        self::setKillSwitch('true');
         $this->bare = new Application($this->tempDir());
         Facade::setFacadeApplication($this->bare);
 
@@ -209,5 +210,27 @@ final class ImmediateModeTest extends TestCase
     {
         putenv('ONLINECONF_CONFIG_OVERRIDE');
         unset($_ENV['ONLINECONF_CONFIG_OVERRIDE'], $_SERVER['ONLINECONF_CONFIG_OVERRIDE']);
+    }
+
+    public function testNothingReadsOnlineconfWithoutTheEnvironmentVariable(): void
+    {
+        $this->beforeProviders();
+        self::forgetKillSwitch();
+        ImmediateModule::flush();
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'immediate reads are off');
+        self::assertSame('off', ImmediateModule::module()->name(), 'no module file is opened');
+
+        $default = require __DIR__ . '/../config/onlineconf.php';
+        self::assertIsArray($default);
+        self::assertFalse($default['config_override'], 'the published default is off as well');
+
+        Facade::setFacadeApplication($this->application());
+        Container::setInstance($this->application());
+        $this->config()->set('onlineconf.config_override', $default['config_override']);
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        ConfigOverride::install($this->application());
+
+        self::assertSame('From config', $this->config()->get('app.name'), 'the lazy override is off too, the marker is gone');
     }
 }

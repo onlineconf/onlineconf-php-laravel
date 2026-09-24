@@ -40,6 +40,7 @@ final class MapCommandTest extends TestCase
 
     private function install(): void
     {
+        $this->config()->set('onlineconf.config_override', true);
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
         $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         $this->config()->set('app.secret', Onlineconf::requireRefString('/app/secret'));

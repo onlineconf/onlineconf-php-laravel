@@ -19,11 +19,12 @@ return [
     'log_channel' => env('ONLINECONF_LOG_CHANNEL'),
 
     // Kill switch of the config() override (see README, "Overriding config() values"): markers stop reading
-    // from OnlineConf and config() returns their fallbacks. It has an effect only when
+    // from OnlineConf and config() returns their fallbacks. Unset means off — OnlineConf is read only where
+    // the variable says so. It has an effect only when
     // Onlineconf\Laravel\ConfigOverride::register($app) is called in bootstrap/app.php. The same variable, read
     // from the process environment, switches off the immediate reads (Onlineconf::getString() in config/*.php):
     // they then return their defaults, and require* throw NotFoundException.
-    'config_override' => (bool) env('ONLINECONF_CONFIG_OVERRIDE', true),
+    'config_override' => (bool) env('ONLINECONF_CONFIG_OVERRIDE', false),
 
     // Called once per config key and process when a mapped key is absent from OnlineConf and config() falls back
     // to the value below. null: silent fallback. A class name is resolved from the container and invoked with
