@@ -362,6 +362,11 @@ php artisan onlineconf:get --module=other /key
 php artisan onlineconf:map
 php artisan onlineconf:map --json
 php artisan about --only=onlineconf
+
+php artisan onlineconf:set /my/service/db/host db.local        # s value
+php artisan onlineconf:set --json /my/service/db/opts '{"pool":5}'
+php artisan onlineconf:set --delete /my/service/db/opts
+php artisan onlineconf:set --module=other /key value
 ```
 
 `onlineconf:get` prints `s` values as is and `j` values as the stored JSON text; `--json` encodes any
@@ -372,6 +377,15 @@ module file and the version of the loaded data.
 
 `onlineconf:map` lists every node the configuration refers to — the derived map and the reads that happened
 while `config/*.php` was loading — and prints fallbacks as they are, so run it where seeing secrets is fine.
+
+`onlineconf:set` edits a **local** module file: it reads the whole CDB, changes one key, regenerates the child
+lists and rewrites both the `.cdb` (atomically, through a temporary file) and the `.conf` listing next to it.
+The two writes are not one transaction: if the `.conf` cannot be written the `.cdb` is already updated (the
+library never reads `.conf`, so nothing breaks). A value passed together with `--delete` is ignored.
+Exit codes: `0`; `1` when `--delete` names a key that does not exist; `2` when the file cannot be opened, the
+directory is not writable, the JSON is invalid or the arguments are wrong. The module file must exist — the
+command does not create one. It is a development tool for a copy of a module taken from a real environment;
+production modules are written by `onlineconf-updater` only.
 
 ## Compatibility
 

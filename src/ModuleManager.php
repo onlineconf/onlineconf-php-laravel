@@ -74,6 +74,15 @@ final class ModuleManager
     }
 
     /**
+     * Forgets a remembered failed open of the file, so the next {@see module()} call opens it: for a process
+     * that has just written the module itself (onlineconf:set).
+     */
+    public function forgetFailure(string $file): void
+    {
+        unset($this->failures[$file]);
+    }
+
+    /**
      * Replaces the module (the default one for null) with an in-memory module built from PHP values, for tests.
      * The returned source can be changed later with {@see ArraySource::replaceValues()}; changes are visible
      * on the next read.

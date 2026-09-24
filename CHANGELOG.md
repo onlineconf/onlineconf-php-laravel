@@ -47,7 +47,6 @@ The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application read
 - Missing-node reporting: the `on_missing` config key, the `MissingValue` object and the call-site capture.
 - The `config_override` config key and the `ONLINECONF_CONFIG_OVERRIDE` variable: the override is always
   installed, and an application without a module reads nothing anyway.
-- The `onlineconf:set` command: editing module files stays in the client's `Onlineconf\Cdb` toolbox.
 
 ## 1.1.0 — 2026-09-21
 
