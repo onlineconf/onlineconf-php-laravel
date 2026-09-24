@@ -17,7 +17,18 @@
 - `onlineconf:map` command: the derived map (config key, path, type, required, fallback) and the immediate
   reads, as a table or `--json`.
 - `onlineconf.map` is now derived and written back to the configuration; the 1.1 format (`key => path`) keeps
-  working and an entry may also be `['path' => ..., 'type' => ..., 'required' => ...]`.
+  working and an entry may also be `['path' => ..., 'type' => ..., 'required' => ...]`. An entry that declares
+  a type that does not exist is a `LogicException` at install, not a silently ignored one.
+
+### Changed
+
+- `config('onlineconf.map')` after the install is always the normalised
+  `['path' => ..., 'type' => ...|null, 'required' => bool]` shape, with the kill switch off as well.
+- `ConfigOverride::install()` replaces the markers in the configuration even when the override is disabled,
+  so `config()` never hands a `Ref` object to the application; with the kill switch off, required markers
+  leave `null` behind and one warning names them.
+- A facade call before the service provider is registered no longer throws "A facade root has not been set":
+  it goes to the immediate module resolved from the process environment.
 
 ## 1.1.0 — 2026-09-21
 

@@ -63,10 +63,15 @@ when you are done.
 
 With `dir` and `module` unset the client's own resolution applies: `ONLINECONF_DIR`, `ONLINECONF_CONFIG`
 and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onlineconf.yaml`, then
-`/usr/local/etc/onlineconf` and `TREE`. Laravel does not export `.env` values to the process environment,
-so a value that lives only in `.env` reaches the client only through the two config keys above — put
-`ONLINECONF_DIR` (and `ONLINECONF_MODULE` if needed) into `.env`, not `CDB_CONFIG_FILE`. `config:cache` is
-safe: `env()` is read only inside the config file.
+`/usr/local/etc/onlineconf` and `TREE`. Laravel's Dotenv keeps `putenv()` enabled by default, so values from
+`.env` do reach `getenv()` and the client's own resolution sees them. Put `ONLINECONF_DIR` (and
+`ONLINECONF_MODULE` if needed) into `.env`; the two config keys above are the explicit alternative and win
+over the environment. `config:cache` is safe: `env()` is read only inside the config file.
+
+Two setups do not export `.env` to `getenv()`: an application that calls `Env::disablePutenv()` (Testbench
+does while it builds the test application) and a `config:cache`d process, where `.env` is not read at all.
+The config keys keep working there, but the **immediate reads** of the next section resolve their directory
+from `getenv()` alone — give those processes a real `ONLINECONF_DIR` in the environment.
 
 The manager snapshots `dir`, `module`, `check_interval` and `log_channel` when it is first resolved (the first
 `Module` injection, facade call, or `ConfigOverride` install) — change them in `config/onlineconf.php` or
@@ -272,12 +277,32 @@ return [
 The type is what the method declares; it is never guessed from the fallback. `refBool('/my/app/debug', (bool)
 env('APP_DEBUG'))` — the cast keeps the fallback the type its node is.
 
+**A marker is not a value.** `(bool) Onlineconf::refBool(...)` is `true` for every marker and `(int)` is `1`,
+because the cast sees an object, not the node — which is exactly why a cast in the config file means `get*`.
+Using a marker as a string throws a `LogicException` naming the path instead of failing quietly.
+
+**Markers do not belong in `config/onlineconf.php`.** `dir`, `module`, `log_channel` and the rest are read
+before the markers are resolved, so a marker there would be read as an object. An immediate `get*` works in
+that file, with the caveat that its own directory comes from the environment.
+
 **Required nodes.** An omitted fallback means the node must exist: the override calls `require*` and the
 client's `NotFoundException` (or `FormatException`, `ParseException`) reaches the caller instead of a silent
 fallback. `refString('/my/app/secret', null)` is the other case — a fallback that happens to be `null` — so an
 explicit `null` never makes a node required. A required node that is missing is a configuration error, not a
 migration gap, so the `on_missing` handler is not called for it. Only a module file that cannot be opened is
 still a fallback: it is an availability failure, logged once, and the configuration value is returned.
+
+The exception also surfaces on an ancestor read: `config('database')` reads every mapped key below it, so a
+missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
+
+With `ONLINECONF_CONFIG_OVERRIDE=false` nothing is read, so a required marker leaves `null` in the
+configuration. `ConfigOverride::install()` logs one warning naming those keys —
+`OnlineConf override is disabled; required nodes fall back to null: app.secret, …` — so the `null` is not
+silent. Immediate `require*` calls throw `NotFoundException` under the same switch.
+
+When the node exists but does not parse as the declared type, the value from `config/*.php` is returned as it
+is — including `null` — and the client's warning is logged. The fallback is never replaced by an empty value
+of the declared type.
 
 ### What immediate reads cost
 
@@ -306,6 +331,10 @@ still a fallback: it is an availability failure, logged once, and the configurat
 php artisan onlineconf:map           # config key | path | type | required | fallback, then the immediate reads
 php artisan onlineconf:map --json    # the same as JSON, for dumping values or diffing against the tree
 ```
+
+The command reports what the current process loaded: it needs `ConfigOverride::register($app)` in
+`bootstrap/app.php` to see the markers at all, and under `config:cache` it lists no immediate reads, because
+the config files did not run — their values came from the cache.
 
 ### Knowing when the fallback is used
 

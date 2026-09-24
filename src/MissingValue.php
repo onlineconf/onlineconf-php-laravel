@@ -16,7 +16,9 @@ final class MissingValue
     public readonly ?int $line;
 
     /**
-     * @param string       $configKey the Laravel configuration key, e.g. "mail.mailers.smtp.host"
+     * @param string       $configKey the Laravel configuration key, e.g. "mail.mailers.smtp.host"; empty for a
+     *                                read that happened while config/*.php was loading — those have a call
+     *                                site but no config key
      * @param string       $path      the mapped OnlineConf path, e.g. "/my/mail/smtp/host"
      * @param mixed        $fallback  the value config() returns instead (from config/*.php)
      * @param string       $module    name of the module that lacks the key
