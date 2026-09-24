@@ -360,6 +360,47 @@ final class ConfigOverrideTest extends TestCase
         ConfigOverride::install($this->application());
         ConfigOverride::install($this->application());
 
+        $handler = $this->probeHandler();
+
+        self::assertCount(1, $handler->getRecords(), 'the failure is logged once per process');
+        self::assertTrue($handler->hasErrorThatContains('cannot open /etc/onlineconf/TREE.cdb'));
+        self::assertSame([], RecordingHandler::$missing, 'an unavailable module is not a migration gap');
+    }
+
+    public function testDisabledOverrideWarnsAboutRequiredMarkers(): void
+    {
+        $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
+        $this->config()->set('onlineconf.log_channel', 'probe');
+        $this->config()->set('app.secret', Onlineconf::refString('/app/secret'));
+        $this->config()->set('app.token', Onlineconf::refString('/app/token'));
+        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('onlineconf.config_override', false);
+
+        ConfigOverride::install($this->application());
+
+        self::assertNull(config('app.secret'), 'a required node without the override is null');
+        self::assertSame('From config', config('app.name'));
+        $handler = $this->probeHandler();
+        self::assertCount(1, $handler->getRecords(), 'one warning for all of them');
+        self::assertTrue($handler->hasWarningThatContains(
+            'OnlineConf override is disabled; required nodes fall back to null: app.secret, app.token',
+        ));
+    }
+
+    public function testDisabledOverrideIsSilentWithoutRequiredMarkers(): void
+    {
+        $this->config()->set('logging.channels.probe', ['driver' => 'monolog', 'handler' => TestHandler::class]);
+        $this->config()->set('onlineconf.log_channel', 'probe');
+        $this->config()->set('app.name', Onlineconf::refString('/app/name', 'From config'));
+        $this->config()->set('onlineconf.config_override', false);
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame([], $this->probeHandler()->getRecords());
+    }
+
+    private function probeHandler(): TestHandler
+    {
         $logManager = $this->application()->make(LogManager::class);
         assert($logManager instanceof LogManager);
         $channel = $logManager->channel('probe');
@@ -369,8 +410,6 @@ final class ConfigOverrideTest extends TestCase
         $handler = $logger->getHandlers()[0] ?? null;
         self::assertInstanceOf(TestHandler::class, $handler);
 
-        self::assertCount(1, $handler->getRecords(), 'the failure is logged once per process');
-        self::assertTrue($handler->hasErrorThatContains('cannot open /etc/onlineconf/TREE.cdb'));
-        self::assertSame([], RecordingHandler::$missing, 'an unavailable module is not a migration gap');
+        return $handler;
     }
 }

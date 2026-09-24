@@ -32,12 +32,23 @@ final class MapEntryTest extends PHPUnitTestCase
         self::assertSame($entries, MapEntry::normalize($entries), 'a normalised map normalises to itself');
     }
 
-    public function testUnknownTypeBecomesTypeByFallback(): void
+    public function testUnknownTypeIsRejected(): void
     {
-        self::assertSame(
-            ['app.name' => ['path' => '/app/name', 'type' => null, 'required' => false]],
-            MapEntry::normalize(['app.name' => ['path' => '/app/name', 'type' => 'nonsense']]),
-        );
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('onlineconf.map: app.name declares an unknown type "nonsense"');
+
+        MapEntry::normalize(['app.name' => ['path' => '/app/name', 'type' => 'nonsense']]);
+    }
+
+    public function testTheAllowedTypesAreNamedInTheMessage(): void
+    {
+        try {
+            MapEntry::normalize(['app.name' => ['path' => '/app/name', 'type' => 5]]);
+            self::fail('a type that is not a type must be rejected');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('duration_ms', $e->getMessage());
+            self::assertStringContainsString('app.name', $e->getMessage());
+        }
     }
 
     public function testJunkIsDropped(): void

@@ -56,6 +56,7 @@ final class ConfigOverride
 
         if (!(bool) Arr::get($items, 'onlineconf.config_override', true)) {
             self::writeBack($config, $items);
+            self::warnAboutRequired($app, $items, $map);
 
             return;
         }
@@ -108,6 +109,26 @@ final class ConfigOverride
         }
 
         return $map;
+    }
+
+    /**
+     * With the override off a required marker has no node to read, so config() returns null where the
+     * application expects a value. One warning names those keys; the immediate require* calls of the same
+     * process throw, which is loud enough on its own.
+     *
+     * @param array<mixed>                                                          $items
+     * @param array<string, array{path: string, type: string|null, required: bool}> $map
+     */
+    private static function warnAboutRequired(ApplicationContract $app, array $items, array $map): void
+    {
+        $required = array_keys(array_filter($map, static fn (array $entry): bool => $entry['required']));
+        if ($required === []) {
+            return;
+        }
+
+        ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel'))->warning(
+            'OnlineConf override is disabled; required nodes fall back to null: ' . implode(', ', $required),
+        );
     }
 
     /**
