@@ -26,28 +26,26 @@ listing only, the library never reads it. Point the package at that directory an
 
 ```sh
 export ONLINECONF_DIR=$PWD/vendor/onlineconf/onlineconf/examples/onlineconf
-export ONLINECONF_CONFIG_OVERRIDE=true                           # needed for the config() override below
 php artisan onlineconf:get /app/hosts/main                       # www.example.com
 php artisan onlineconf:get --tree /app/nginx/anti-ddos           # pretty JSON of the subtree
 php artisan onlineconf:get --json /app/services/billing/admin_emails | jq .
 php artisan about --only=onlineconf                              # directory, module file, version
 ```
 
-The same tree works for the `config()` override below. With `ConfigOverride::register($app)` installed
-and this map in `config/onlineconf.php`:
+The same tree works for the `config()` override below. With `ConfigOverride::register($app)` installed and
+these markers in `config/app.php` and `config/session.php`:
 
 ```php
-'map' => [
-    'app.url'          => '/app/hosts/main',                 // string fallback → "www.example.com"
-    'session.lifetime' => '/app/nginx/anti-ddos/cookie-ttl', // int fallback    → 7200
-    'app.debug'        => '/app/nginx/anti-ddos/debug',      // bool fallback   → false ("0")
-],
+use Onlineconf\Laravel\Facades\Onlineconf;
+
+'url'      => Onlineconf::getRefString('/app/hosts/main', 'localhost'),            // → "www.example.com"
+'lifetime' => Onlineconf::getRefInt('/app/nginx/anti-ddos/cookie-ttl', 120),       // → 7200
+'debug'    => Onlineconf::getRefBool('/app/nginx/anti-ddos/debug', false),         // → false ("0")
 ```
 
 `config('session.lifetime')` returns the integer `7200` and `config('app.debug')` returns `false`, while
-every unmapped key keeps its value from `config/*.php`. Without `ONLINECONF_CONFIG_OVERRIDE` nothing is read
-from OnlineConf and every key keeps its configured value. Unset both variables (or set them in `.env`) when
-you are done.
+every other key keeps its value from `config/*.php`. Unset `ONLINECONF_DIR` (or set it in `.env`) when you
+are done: with no module to read, every marker serves the fallback next to it.
 
 ## Configuration
 
@@ -59,9 +57,6 @@ you are done.
 | `module` | `ONLINECONF_MODULE` | `null` | default module: a name (`TREE`) or a file path; `null` = client default |
 | `check_interval` | `ONLINECONF_CHECK_INTERVAL` | `5` | seconds between `stat()` checks for updates, `0` = every access |
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
-| `config_override` | `ONLINECONF_CONFIG_OVERRIDE` | `false` | switch of the `config()` override and of the immediate reads below; unset means off |
-| `on_missing` | — | `null` | handler for mapped keys absent from OnlineConf: a class name (resolved from the container, invoked with a `MissingValue`) or a Closure; see below |
-| `map` | — | `[]` | extra Laravel config key → OnlineConf node; the map the override uses is **derived** from the `getRef*()` markers in `config/*.php` and merged with this one (see below) |
 
 With `dir` and `module` unset the client's own resolution applies: `ONLINECONF_DIR`, `ONLINECONF_CONFIG`
 and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onlineconf.yaml`, then
@@ -196,46 +191,40 @@ $app = Application::configure(basePath: dirname(__DIR__))
 return $app;
 ```
 
-and name the nodes in `config/*.php` (see the next section) or in the published `config/onlineconf.php`:
+and name the nodes in `config/*.php` with the markers of the next section:
 
 ```php
-'map' => [
-    'services.mailer.host' => '/my/service/mailer/host',
-    'services.mailer.port' => '/my/service/mailer/port',
-    'app.debug'            => '/my/service/debug',
+// config/services.php
+'mailer' => [
+    'host' => Onlineconf::getRefString('/my/service/mailer/host', env('MAIL_HOST')),
+    'port' => Onlineconf::getRefInt('/my/service/mailer/port', 25),
 ],
 ```
 
-From then on `config('services.mailer.host')` is read from OnlineConf. The value from `config/*.php` (usually
-`env(...)`) stays as the fallback and is returned whenever: there is no such key in OnlineConf, the value does
-not parse (a warning is logged, as the client always does), the value is invalid JSON (an error is logged), or
-the module file cannot be opened (an error is logged once). In this map format the OnlineConf value is read
-with the type of the fallback: a `bool` in the config file means `getBool`, an `int` means `getInt`, an array
-means `getArray` (a JSON value in OnlineConf), a string means `getString`, `null` means the raw value. Reading
-`config('services')` as a whole includes the mapped keys under it; an explicit `config()->set()` at runtime
+From then on `config('services.mailer.host')` is read from OnlineConf. The value written in `config/*.php`
+(usually `env(...)`) stays as the fallback and is returned whenever: OnlineConf has no such node, the value
+does not parse as the declared type (a warning is logged, in the client's own wording), the value is invalid
+JSON (an error is logged), or there is no module file at all (noted once at `debug` level). Reading
+`config('services')` as a whole includes the marked keys under it; an explicit `config()->set()` at runtime
 wins over the map.
 
-- The override reads OnlineConf only where `ONLINECONF_CONFIG_OVERRIDE` is set to a truthy value; unset — the
-  state of an application that has not enabled it yet — means off, and so does `ONLINECONF_CONFIG_OVERRIDE=false`
-  in `.env`. Turn it on per environment, then migrate one key at a time.
-- The explicit map lives in the application's published `config/onlineconf.php`: at the moment the override is
-  installed, package defaults are not merged yet, so an unpublished config means no explicit entries. Markers
-  in `config/*.php` (next section) need no published config file.
-- After the install, `config('onlineconf.map')` holds the normalised, derived map — what `onlineconf:map`
-  prints. An entry is `['path' => ..., 'type' => ...|null, 'required' => bool]`; `type` is `null` for the
-  `key => path` format above, which keeps reading by the type of the fallback.
+- There is one map and it is derived: `config('onlineconf.map')` holds what the markers declared —
+  `['path' => ..., 'type' => ..., 'required' => bool]` per config key — and is what `onlineconf:map` prints.
+  It is output, not input: writing that key by hand changes nothing.
+- Migrate one key at a time by turning `env(...)` into a marker around it.
 - `config:cache` is supported: the override works on top of the cached array.
 - Reads are lazy, so long-running workers see a changed value on the next `config()` call. Services that read
   their settings once in a constructor keep them, as with any Laravel configuration.
 - `set()` at runtime unmaps the written key, everything below it and everything above it: an explicit write
   wins over the map for good, not just until the next read.
-- The client logs an unparsable mapped value verbatim at `warning` level (e.g. `"abc" is not an integer`), so
-  a malformed secret can end up in the log.
+- An unparsable value is logged verbatim at `warning` level (e.g. `"abc" is not an integer`), so a malformed
+  secret can end up in the log.
 - Not covered: `env()` calls outside `config/*.php` and `getenv()`; move them into a config file first. Also
   not covered: `config()->all()` — it returns the loaded configuration without substitution (this is what
   keeps `config:cache` safe), so code or packages reading `all()` see the fallbacks.
-- Cost: an unmapped key costs one extra array lookup; a mapped key is one `dba_fetch` on first read per process,
-  then the client's cache.
+- Cost: an unmarked key costs one extra array lookup; a marked key is one `dba_fetch` on first read per
+  process, then the client's cache. Where there is no module at all, the first mapped read notes it once and
+  every later one is a plain array lookup again.
 
 ## Naming nodes in config/*.php
 
@@ -290,28 +279,20 @@ because the cast sees an object, not the node — which is exactly why a cast in
 Using a marker as a string throws a `LogicException` naming the path instead of failing quietly.
 
 **Markers do not belong in `config/onlineconf.php`, `app.env` or `app.timezone`.** The package's own settings
-(`dir`, `module`, `log_channel`, `check_interval`, `config_override`) and the keys `LoadConfiguration` itself
-consumes (`app.env`, `app.timezone`) are read before the markers are resolved, so a marker there would be
-read as an object. An immediate `get*` works in those files, with the caveat that its own directory comes
+(`dir`, `module`, `check_interval`, `log_channel`) and the keys `LoadConfiguration` itself consumes
+(`app.env`, `app.timezone`) are read before the markers are resolved, so a marker there would be read as an
+object. An immediate `get*` works in those files, with the caveat that its own directory comes
 from the environment.
 
 **Required nodes.** `requireRefString('/my/app/secret')` and its siblings take no fallback: the node must
 exist, and the override calls the client's `require*`, so `NotFoundException` (or `FormatException`,
 `ParseException`) reaches the caller instead of a silent fallback. `getRefString('/my/app/secret', null)` is
-the other case — a node that may be absent, with `null` as its fallback. A required node that is missing is a
-configuration error, not a migration gap, so the `on_missing` handler is not called for it. Only a module
-file that cannot be opened is still a fallback: it is an availability failure, logged once, and the
-configuration value is returned.
+the other case — a node that may be absent, with `null` as its fallback. Use `requireRef*()` only where the
+application genuinely cannot run on a default: a machine with no module file gets the fallback `null` there,
+because no module at all is a different thing from a tree that lacks the node.
 
-The exception also surfaces on an ancestor read: `config('database')` reads every mapped key below it, so a
+The exception also surfaces on an ancestor read: `config('database')` reads every marked key below it, so a
 missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
-
-With `ONLINECONF_CONFIG_OVERRIDE` unset or false nothing is read, so a required marker leaves `null` in the
-configuration. `ConfigOverride::install()` logs one warning naming those keys —
-`OnlineConf override is disabled; required nodes fall back to null: app.secret, …` — so the `null` is not
-silent. Immediate `require*` calls throw `NotFoundException` under the same switch. That warning resolves
-`log_channel` at install time, before service providers register, so the caveat above applies here too: a
-channel whose driver is registered by `Log::extend()` in a provider cannot receive it.
 
 When the node exists but does not parse as the declared type, the value from `config/*.php` is returned as it
 is — including `null` — and the client's warning is logged. The fallback is never replaced by an empty value
@@ -326,18 +307,11 @@ of the declared type.
 - **The module directory comes from the process environment** (`ONLINECONF_DIR`, `ONLINECONF_CONFIG`,
   `CDB_CONFIG_FILE`, then the client's defaults), not from `config/onlineconf.php`, which is not loaded yet.
   `.env` is already loaded at that point, so `ONLINECONF_DIR` in `.env` works; `onlineconf.dir` does not.
-- **The same switch governs immediate reads**: with `ONLINECONF_CONFIG_OVERRIDE` unset or false, `get*`
-  return their defaults and `require*` throw `NotFoundException`. Both mechanisms read one variable, so they
-  can never disagree about whether this process talks to OnlineConf.
 - **A module file that cannot be opened does not stop the boot**: `get*` return their defaults, exactly as
-  `config()` does on the lazy path, and `ConfigOverride::install()` logs the failure once through the
-  configured log channel. `require*` still throw the client's `OpenException` — a required node cannot be
-  satisfied without the tree. So a pod without the OnlineConf volume, or a checkout before the first clone,
-  boots with the override flag on.
-- Immediate reads are recorded; `ConfigOverride::install()` reports the ones that found nothing to the
-  `on_missing` handler with an empty `configKey` (there is no config key, only a call site). Reads that fell
-  back because the module could not be opened are not reported there: that is an availability failure, and it
-  is logged instead.
+  `config()` does on the lazy path, and nothing is logged. `require*` still throw the client's
+  `OpenException` — a required node cannot be satisfied without a tree. A pod without the OnlineConf volume,
+  or a checkout before the first clone, boots on what `config/*.php` holds.
+- Immediate reads are recorded for `onlineconf:map`, whether or not they found anything.
 
 ### Seeing what is referenced
 
@@ -350,39 +324,20 @@ The command reports what the current process loaded: it needs `ConfigOverride::r
 `bootstrap/app.php` to see the markers at all, and under `config:cache` it lists no immediate reads, because
 the config files did not run — their values came from the cache.
 
-### Knowing when the fallback is used
+### Why there are no reports
 
-A mapped key that OnlineConf does not have is a migration gap: the value still comes from `config/*.php`, but
-nobody is told. Set `on_missing` to an invokable class and the package calls it once per config key and process
-(per request under PHP-FPM) with an `Onlineconf\Laravel\MissingValue`. Under Octane, Horizon or queue workers,
-"once per process" means once per worker lifetime, so a log-based alert may fire only once until the worker
-restarts:
+A node OnlineConf does not have is not an error and is not reported anywhere: the value in `config/*.php` —
+usually `env(...)` — **is** the default, and the tree holds only what must differ from that default or change
+without a deploy. A tree that answers nothing is a correct tree for an application that is happy with its
+defaults, which is why a developer machine with no module file works with no configuration at all.
 
-```php
-// config/onlineconf.php
-'on_missing' => App\Onlineconf\ReportMissingValue::class,
+What does get said out loud:
 
-// app/Onlineconf/ReportMissingValue.php
-final class ReportMissingValue
-{
-    public function __invoke(\Onlineconf\Laravel\MissingValue $missing): void
-    {
-        Log::warning('OnlineConf has no value, config() falls back', [
-            'config_key' => $missing->configKey, // 'services.mailer.host'
-            'path' => $missing->path,            // '/my/service/mailer/host'
-            'module' => $missing->module,        // 'TREE'
-            'called_at' => $missing->file . ':' . $missing->line, // first frame outside vendor/
-            'trace' => $missing->trace,          // up to five such frames
-        ]);
-    }
-}
-```
-
-`$missing->fallback` carries the value config() returned; log it only if you know it is not a secret. The
-package itself logs nothing here and never swallows an exception thrown by the handler. A module file that
-cannot be opened is a different failure (logged once as an error) and does not reach the handler. A Closure is
-accepted as well, but a Closure cannot be `config:cache`d. A class name is resolved from the container on each
-report (once per config key and process), so keep the handler cheap to construct or bind it as a singleton.
+- a value that does not parse as the declared type — `warning`, in the client's own wording;
+- a value that is not the JSON it claims to be — `error`;
+- no module file at all — one `debug` line per process, then silence;
+- a node a `requireRef*()` marker declares and OnlineConf does not have — the client's `NotFoundException`,
+  thrown at the `config()` call, because that node was declared as one that must exist.
 
 ## Artisan
 
