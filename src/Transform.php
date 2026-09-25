@@ -37,18 +37,7 @@ final class Transform
             return null;
         }
         if ($transform instanceof Closure) {
-            $function = new ReflectionFunction($transform);
-            // A first-class callable of a function — PHP's (trim(...)) or the application's — has no closure
-            // source to store; its name is the storable form. One of a user static method survives as it is.
-            $named = !str_starts_with($function->getName(), '{closure');
-            if ($named && ($function->isInternal() || $function->getClosureScopeClass() === null)) {
-                throw new InvalidArgumentException(sprintf(
-                    "%s: %s(...) cannot be stored for config:cache; write '%s' instead",
-                    $path,
-                    $function->getName(),
-                    $function->getName(),
-                ));
-            }
+            self::assertStorable($path, new ReflectionFunction($transform));
 
             return ['closure' => serialize(SerializableClosure::unsigned($transform))];
         }
@@ -74,21 +63,10 @@ final class Transform
     public static function decode(string|array $encoded, ?string $key, string $path): callable
     {
         if (is_array($encoded) && isset($encoded['closure'])) {
-            $notAClosure = sprintf('%s: the stored closure is not a serialized closure', self::subject($key, $path));
-            // unserialize() reports a corrupt payload with a notice; turn it into the exception.
-            set_error_handler(static function () use ($notAClosure): never {
-                throw new LogicException($notAClosure);
-            });
-            try {
-                $closure = unserialize($encoded['closure']);
-            } finally {
-                restore_error_handler();
-            }
-            if (!$closure instanceof UnsignedSerializableClosure) {
-                throw new LogicException($notAClosure);
-            }
-
-            return $closure->getClosure();
+            return self::unserializeClosure($encoded['closure'], sprintf(
+                '%s: the stored closure is not a serialized closure',
+                self::subject($key, $path),
+            ));
         }
         if (!is_callable($encoded)) {
             throw new LogicException(sprintf('%s: %s is not callable', self::subject($key, $path), json_encode($encoded)));
@@ -114,6 +92,75 @@ final class Transform
                 sprintf('OnlineConf transform of %s failed: %s', self::subject($key, $path), $e->getMessage()),
                 previous: $e,
             );
+        }
+    }
+
+    /**
+     * A first-class callable is a closure over a named function, which has no closure source to store: its
+     * name, or its [class, method] pair, is the storable form. One of a user static method survives as it is.
+     *
+     * @throws InvalidArgumentException naming the storable form to write instead
+     */
+    private static function assertStorable(string $path, ReflectionFunction $function): void
+    {
+        $name = $function->getName();
+        if (str_starts_with($name, '{closure')) {
+            return;
+        }
+        $scope = $function->getClosureScopeClass();
+        if ($function->getClosureThis() !== null) {
+            throw new InvalidArgumentException(sprintf(
+                "%s: an object's %s(...) cannot be stored for config:cache; use a static method as [Class::class, 'method']",
+                $path,
+                $name,
+            ));
+        }
+        if ($scope === null) {
+            throw new InvalidArgumentException(sprintf("%s: %s(...) cannot be stored for config:cache; write '%s' instead", $path, $name, $name));
+        }
+        if ($function->isInternal()) {
+            throw new InvalidArgumentException(sprintf(
+                "%s: %s::%s(...) cannot be stored for config:cache; write [%s::class, '%s'] instead",
+                $path,
+                $scope->getName(),
+                $name,
+                $scope->getName(),
+                $name,
+            ));
+        }
+    }
+
+    /**
+     * unserialize() of a stored closure. Only unserialize()'s own complaint — a notice or warning about the
+     * payload — means the payload is not one; the closure source is compiled again in there, so whatever it
+     * raises (a deprecation on a newer PHP, say) goes on to the handler that was there before.
+     *
+     * @throws LogicException with $notAClosure
+     */
+    private static function unserializeClosure(string $payload, string $notAClosure): Closure
+    {
+        $previous = null;
+        $previous = set_error_handler(
+            static function (int $level, string $message, string $file = '', int $line = 0) use (&$previous, $notAClosure): bool {
+                if (str_starts_with($message, 'unserialize()')) {
+                    throw new LogicException($notAClosure);
+                }
+
+                return is_callable($previous) && (bool) $previous($level, $message, $file, $line);
+            },
+            E_NOTICE | E_WARNING,
+        );
+        try {
+            $closure = unserialize($payload);
+            if (!$closure instanceof UnsignedSerializableClosure) {
+                throw new LogicException($notAClosure);
+            }
+
+            return $closure->getClosure();
+        } catch (Throwable $e) {
+            throw $e instanceof LogicException && $e->getMessage() === $notAClosure ? $e : new LogicException($notAClosure, 0, $e);
+        } finally {
+            restore_error_handler();
         }
     }
 

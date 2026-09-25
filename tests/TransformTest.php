@@ -6,8 +6,10 @@ namespace Onlineconf\Laravel\Tests;
 
 use Laravel\SerializableClosure\SerializableClosure;
 use Onlineconf\Laravel\Tests\Support\Csv;
+use Onlineconf\Laravel\Tests\Support\Wakeup;
 use Onlineconf\Laravel\Transform;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class TransformTest extends PHPUnitTestCase
@@ -125,6 +127,81 @@ final class TransformTest extends PHPUnitTestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('/p: "no_such_function_in_this_codebase" is not callable');
         Transform::decode('no_such_function_in_this_codebase', null, '/p');
+    }
+
+    #[IgnoreDeprecations]
+    public function testAClosureWhoseSourceIsDeprecatedStillDecodes(): void
+    {
+        // Optional before required is deprecated at compile time since PHP 8.0: SerializableClosure compiles the
+        // source again inside unserialize(), and that deprecation is not unserialize() complaining.
+        $file = sys_get_temp_dir() . '/onlineconf-deprecated-' . bin2hex(random_bytes(6)) . '.php';
+        file_put_contents($file, "<?php\nreturn static fn (string \$prefix = 'x', string \$value): string => \$prefix . \$value;\n");
+        try {
+            $closure = require $file;
+            self::assertInstanceOf(\Closure::class, $closure);
+            $encoded = Transform::encode('/p', $closure);
+        } finally {
+            unlink($file);
+        }
+        self::assertIsArray($encoded);
+
+        self::assertSame('ab', Transform::decode($encoded, 'app.key', '/p')('a', 'b'));
+    }
+
+    public function testAWarningDuringUnserializeThatIsNotUnserializesOwnGoesToThePreviousHandler(): void
+    {
+        $wakeup = new Wakeup('warn');
+        $encoded = Transform::encode('/p', static fn (string $name): string => $wakeup->greet($name));
+        self::assertIsArray($encoded);
+        $seen = [];
+        set_error_handler(static function (int $level, string $message) use (&$seen): bool {
+            $seen[] = $message;
+
+            return true;
+        });
+        try {
+            $decoded = Transform::decode($encoded, 'app.key', '/p');
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame('warn you', $decoded('you'));
+        self::assertCount(1, $seen);
+        self::assertStringStartsWith('hex2bin()', $seen[0], 'passed on, not turned into "not a serialized closure"');
+    }
+
+    public function testAnExceptionDuringUnserializeNamesTheKeyAndPath(): void
+    {
+        $wakeup = new Wakeup('throw');
+        $encoded = Transform::encode('/p', static fn (string $name): string => $wakeup->greet($name));
+        self::assertIsArray($encoded);
+
+        try {
+            Transform::decode($encoded, 'app.key', '/p');
+            self::fail('the stored closure cannot be restored');
+        } catch (\LogicException $e) {
+            self::assertSame('app.key (/p): the stored closure is not a serialized closure', $e->getMessage());
+            self::assertInstanceOf(\RuntimeException::class, $e->getPrevious());
+        }
+    }
+
+    public function testAFirstClassCallableOfAnInternalStaticMethodIsRejectedWithThePairForm(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("/my/path: DateTime::createFromFormat(...) cannot be stored for config:cache; write [DateTime::class, 'createFromFormat'] instead");
+
+        Transform::encode('/my/path', \DateTime::createFromFormat(...));
+    }
+
+    public function testAFirstClassCallableOfAnObjectMethodIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            "/my/path: an object's greet(...) cannot be stored for config:cache;"
+            . " use a static method as [Class::class, 'method']",
+        );
+
+        Transform::encode('/my/path', (new Wakeup('x'))->greet(...));
     }
 
     public function testAnInvokableObjectIsRejected(): void
