@@ -372,8 +372,13 @@ $hosts->value();   // the list, read now
 
 It is there for code outside `config/*.php` that wants one declaration — path, type, fallback, transform — in
 several places. `onlineconf:map` does not list a read after boot; a read while the configuration loads appears
-among its immediate reads. Inside config files prefer a plain marker (lazy) or `get*()` (immediate). Nothing is
-memoised but the decoded transform: the client caches the raw values per module version.
+among its immediate reads. Inside config files prefer a plain marker (lazy) or `get*()` (immediate).
+
+The value is never memoised — the client caches the raw values per module version — but the marker keeps its
+decoded transform. That only pays off when the marker is kept: `Onlineconf::getRefString(..., fn ...)->value()`
+written inline serializes and unserializes the closure on every call, so build the marker once, in a property
+or a constant-like static, and call `value()` on it. A kept marker also keeps the closure's `static` variables
+and the objects its `use` captured between calls — one more reason to keep transforms pure.
 
 ### What immediate reads cost
 

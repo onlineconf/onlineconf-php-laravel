@@ -21,7 +21,9 @@
 - `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
 - `Ref::value()`: a marker reads its node on demand — the facade's immediate read of its type, with the
   absence rules of `config()`, then its transform. For code outside `config/*.php`; a read after boot is not
-  listed by `onlineconf:map`, one while the configuration loads is among its immediate reads.
+  listed by `onlineconf:map`, one while the configuration loads is among its immediate reads, with the marker's
+  own required flag. A held marker keeps its decoded transform, and with it a closure's `static` variables and
+  mutable `use` objects, between calls: keep transforms pure.
 - `onlineconf:map` shows whether an immediate read was a `require*` (`Required` column, `required` in `--json`).
 
 ### Upgrading and rolling back

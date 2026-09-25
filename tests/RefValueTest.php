@@ -213,6 +213,11 @@ final class RefValueTest extends TestCase
         ];
     }
 
+    public function testTheTypeProviderCoversEveryType(): void
+    {
+        self::assertSame(Ref::TYPES, array_keys(self::everyType()));
+    }
+
     #[DataProvider('everyType')]
     public function testEveryTypeReadsItsNode(string $type, string $stored, mixed $fallback, mixed $expected): void
     {
@@ -252,10 +257,14 @@ final class RefValueTest extends TestCase
 
         Onlineconf::getRefString('/app/name', 'dflt')->value();
         Onlineconf::requireRefInt('/app/workers')->value();
+        Onlineconf::getRefString('/app/name', null)->value();
 
         $reads = EagerReads::all();
+        self::assertCount(3, $reads, 'one record per read');
         self::assertFalse($reads[0]->required);
         self::assertTrue($reads[1]->required);
+        self::assertFalse($reads[2]->required, 'a null fallback is still an optional marker');
+        self::assertNull($reads[2]->default);
     }
 
     public function testAStoredClosureIsDecodedOncePerMarker(): void

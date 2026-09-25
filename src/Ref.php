@@ -64,15 +64,17 @@ final class Ref
     }
 
     /**
-     * The node's value right now, through the transform: the facade's immediate read of the declared type —
-     * get*() with the fallback, require*() for a required marker — so it works after boot and while
-     * config/*.php loads (recorded as an immediate read). A node or module that is not there gives the
-     * fallback, or the client's exception for a required marker; an unparsable node gives the client's warning
-     * and the fallback.
+     * The node's value right now, through the transform: the client's getter of the declared type — get*() with
+     * the fallback, require*() for a required marker — on the module the facade would use, so it works after
+     * the package's provider has registered and while config/*.php loads (recorded as an immediate read, with
+     * this marker's required flag). A node or module that is not there gives the fallback, or the client's
+     * exception for a required marker; an unparsable node gives the client's warning and the fallback, invalid
+     * JSON an error and the fallback.
      *
-     * Nothing is memoised here: the client caches the raw values per module version, and a stored closure is
-     * unserialized on every call. A marker read this way is not in the derived map unless it also sits in a
-     * config file, so onlineconf:map does not list the read.
+     * The value is never memoised: the client caches the raw values per module version. The transform is
+     * decoded on this marker's first read and kept for as long as the marker is, so hold on to a marker that is
+     * read often. onlineconf:map lists a read made while the configuration loads among its immediate reads, and
+     * none made after boot.
      *
      * @throws \Onlineconf\Exception\NotFoundException|\Onlineconf\Exception\OpenException for a required marker whose
      *         node or module is missing

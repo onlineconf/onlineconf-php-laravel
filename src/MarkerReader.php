@@ -17,9 +17,9 @@ use RuntimeException;
 use WeakMap;
 
 /**
- * What {@see Ref::value()} does: read the node through the facade's immediate read of the marker's type — so
- * it works after boot (the module from the container) and while config/*.php loads (the immediate module,
- * recorded in {@see EagerReads}) — with the absence rules of every other read, then apply the transform.
+ * What {@see Ref::value()} does: read the node with the client's getter of the marker's type from the module
+ * the facade would use — the container's after boot, the immediate module (recorded in {@see EagerReads})
+ * while config/*.php loads — with the absence rules of every other read, then apply the transform.
  *
  * @internal
  */
@@ -74,16 +74,17 @@ final class MarkerReader
     {
         $getter = self::GETTERS[$ref->type] ?? '';
         if ($ref->required) {
-            return Onlineconf::__callStatic('require' . $getter, [$ref->path]);
+            return self::call(self::module($ref), 'require' . $getter, [$ref->path]);
         }
 
         try {
+            $module = self::module($ref);
             if ($ref->fallback !== null || $ref->type === Ref::TYPE_RAW) {
-                return Onlineconf::__callStatic('get' . $getter, [$ref->path, $ref->fallback]);
+                return self::call($module, 'get' . $getter, [$ref->path, $ref->fallback]);
             }
 
             // The client's typed getters take a default of their own type, so a null fallback is served here.
-            return Onlineconf::__callStatic('require' . $getter, [$ref->path]);
+            return self::call($module, 'require' . $getter, [$ref->path]);
         } catch (NotFoundException|OpenException) {
             return $ref->fallback;
         } catch (FormatException|ParseException $e) {
@@ -99,6 +100,38 @@ final class MarkerReader
 
             return $ref->fallback;
         }
+    }
+
+    /**
+     * The module the facade would read: the container's once the package's provider has registered, the
+     * immediate module of the process environment before — where the read is recorded, as the marker is
+     * (optional or required), not as the getter that serves it.
+     *
+     * @throws OpenException when there is no module file
+     */
+    private static function module(Ref $ref): Module
+    {
+        $app = Onlineconf::getFacadeApplication();
+        if ($app !== null && $app->bound(Module::class)) {
+            $module = $app->make(Module::class);
+            assert($module instanceof Module);
+
+            return $module;
+        }
+        EagerReads::record($ref->path, $ref->type, $ref->required ? null : $ref->fallback, $ref->required);
+
+        return ImmediateModule::module();
+    }
+
+    /**
+     * @param list<mixed> $arguments
+     */
+    private static function call(Module $module, string $method, array $arguments): mixed
+    {
+        $getter = [$module, $method];
+        assert(is_callable($getter));
+
+        return $getter(...$arguments);
     }
 
     /**
