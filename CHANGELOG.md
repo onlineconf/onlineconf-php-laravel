@@ -10,9 +10,12 @@
   transformed fallback into the configuration, so `config()` without a module, `config()->all()` and
   `config:cache` have the final shape; the derived map keeps the raw fallback and the stored transform.
 - The transformed node value is memoised per config key until the module version changes.
-- A transform may be a `Closure` (stored with `laravel/serializable-closure`, now a direct dependency), a
-  function name or a `[class, static method]` pair; anything else is an `InvalidArgumentException` naming the
-  path when the marker is built. Closures survive `config:cache`, signed by Laravel or not.
+- A transform may be a `Closure` (stored unsigned with `laravel/serializable-closure`, now a direct
+  dependency), a function name or a `[class, static method]` pair; an invokable object, an object method or a
+  first-class callable of a PHP function is an `InvalidArgumentException` naming the path when the marker is
+  built. Closures survive `config:cache` whatever `APP_KEY` is set, now or later.
+- A transform that throws propagates as a `RuntimeException` naming the config key and the path. The memo is
+  shared between the clones Octane makes of the configuration repository per request.
 - `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
 
 ### Upgrading and rolling back

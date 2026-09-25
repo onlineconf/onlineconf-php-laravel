@@ -332,17 +332,24 @@ Every lazy marker takes an optional transform — the last argument: `getRef*($p
   fallback is written raw (here the `env()` string) and `ConfigOverride::install()` stores the transformed
   fallback in the configuration — `config()` on a machine without OnlineConf, `config()->all()` and
   `config:cache` all see the final shape. A `requireRef*()` marker has no fallback, so nothing is shaped there.
+- **Its parameter must accept `null`** whenever the fallback can be `null` (an unset `env()`): the transform
+  receives the fallback exactly as written.
 - **It runs once per module version**, not on every `config()` call: the result is memoised per config key
-  and computed again when the module reloads. Keep it a pure function of its argument.
+  and computed again when the module reloads, and every `config()` call of that version gets the same
+  instance. Keep it a pure function of its argument.
 - **It must be storable**, because `config:cache` writes the configuration with `var_export()`: a `Closure`
   (stored with `laravel/serializable-closure`), a function name (`'strtolower'`) or a static method
-  (`[Csv::class, 'split']`). An invokable object or an object method is rejected with an
-  `InvalidArgumentException` naming the path, when the marker is built. A closure's `use` variables are
-  captured by value when the marker is built; a by-reference `use` is not shared after the cache.
-- The package signs nothing itself. A closure is serialized and unserialized while the configuration loads,
-  before any service provider — Laravel's encryption provider installs its closure signer only later — and the
-  configuration cache is a local file of the application. A cache written by `php artisan config:cache`, where
-  Laravel's signer is already set, is read back unchanged.
+  (`[Csv::class, 'split']`). Rejected with an `InvalidArgumentException` naming the path, when the marker is
+  built: an invokable object, an object method, and a first-class callable of a PHP function (`trim(...)`,
+  write `'trim'` instead). A function that does not exist, or a non-static method written as
+  `[Csv::class, 'method']`, is not a callable at all: PHP rejects it with a `TypeError` for the `?callable`
+  parameter.
+- **A closure is serialized when the marker is built**: its `use` variables are copied then, and a
+  by-reference `use` is never shared with the code around it. The stored closure is unsigned — the
+  configuration cache is trusted local PHP — so it does not depend on `APP_KEY` or its rotation.
+- **A transform that throws is a programming error, not a missing value**: it propagates as a
+  `RuntimeException` naming the config key and the path, on the node value from `config()` and on the
+  fallback from `ConfigOverride::install()`.
 - The immediate `get*()` / `require*()` take no transform: the config file can wrap them directly.
 - `onlineconf:map` marks transformed keys in its `Transform` column and shows the fallback as written.
 
