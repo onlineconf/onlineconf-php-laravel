@@ -168,7 +168,7 @@ final class ConfigCacheTest extends TestCase
         return [
             // php artisan config:cache: the outer application's encryption provider has set app.key as the
             // closure signer; the cached boot of the next process installs the override before any provider.
-            'signed while caching, read before providers' => ['base64:caching-key', null],
+            'signer set while caching, read before providers' => ['base64:caching-key', null],
             'no signer anywhere' => [null, null],
             'the same signer on both ends' => ['base64:shared-key', 'base64:shared-key'],
         ];

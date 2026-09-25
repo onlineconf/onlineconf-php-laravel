@@ -76,6 +76,57 @@ final class TransformTest extends PHPUnitTestCase
         Transform::encode('/my/path', trim(...));
     }
 
+    public function testAFirstClassCallableOfAUserStaticMethodSurvivesTheRoundTrip(): void
+    {
+        $encoded = Transform::encode('/p', Csv::split(...));
+
+        self::assertIsArray($encoded);
+        $restored = eval('return ' . var_export($encoded, true) . ';');
+        self::assertTrue(Transform::isEncoded($restored));
+        self::assertSame(['a', 'b'], Transform::decode($restored, 'app.hosts', '/p')('a, b'));
+    }
+
+    public function testAFirstClassCallableOfAUserFunctionIsRejectedWithTheStringForm(): void
+    {
+        require_once __DIR__ . '/Support/functions.php';
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            '/my/path: Onlineconf\\Laravel\\Tests\\Support\\split_hosts(...) cannot be stored for config:cache;'
+            . " write 'Onlineconf\\Laravel\\Tests\\Support\\split_hosts' instead",
+        );
+
+        Transform::encode('/my/path', \Onlineconf\Laravel\Tests\Support\split_hosts(...));
+    }
+
+    public function testAStoredClosureWithACorruptTailNamesTheKeyAndPath(): void
+    {
+        $encoded = Transform::encode('/p', static fn (string $value): string => $value);
+        self::assertIsArray($encoded);
+        self::assertArrayHasKey('closure', $encoded);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('app.key (/p): the stored closure is not a serialized closure');
+
+        Transform::decode(['closure' => substr($encoded['closure'], 0, -20)], 'app.key', '/p');
+    }
+
+    public function testMessagesWithoutAConfigKeyNameThePath(): void
+    {
+        try {
+            Transform::apply(static function (): never {
+                throw new \DomainException('boom');
+            }, null, null, '/p');
+            self::fail('the transform throws');
+        } catch (\RuntimeException $e) {
+            self::assertSame('OnlineConf transform of /p failed: boom', $e->getMessage());
+        }
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('/p: "no_such_function_in_this_codebase" is not callable');
+        Transform::decode('no_such_function_in_this_codebase', null, '/p');
+    }
+
     public function testAnInvokableObjectIsRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);

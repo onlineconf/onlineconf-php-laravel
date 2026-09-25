@@ -19,6 +19,8 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Tests\Support\Csv;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -371,5 +373,33 @@ final class ConfigOverrideTest extends TestCase
             }
         }
         self::assertSame($before, $this->config(), 'a failed install is not remembered as done');
+    }
+
+    public function testAnInstallThatFailsAfterTheDeriveIsRetried(): void
+    {
+        $this->useModule(['/app/name' => 'sFrom OnlineConf']);
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        $logger = new \stdClass();
+        $logger->broken = true;
+        $this->application()->bind(LoggerInterface::class, static function () use ($logger): LoggerInterface {
+            if ($logger->broken === true) {
+                throw new \RuntimeException('no logger yet');
+            }
+
+            return new NullLogger();
+        });
+
+        try {
+            ConfigOverride::install($this->application());
+            self::fail('the logger cannot be resolved');
+        } catch (\RuntimeException $e) {
+            self::assertSame('no logger yet', $e->getMessage());
+        }
+        $logger->broken = false;
+
+        ConfigOverride::install($this->application());
+
+        self::assertInstanceOf(OverridingRepository::class, $this->config(), 'the failed install was not remembered as done');
+        self::assertSame('From OnlineConf', config('app.name'));
     }
 }

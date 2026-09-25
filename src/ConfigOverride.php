@@ -47,7 +47,8 @@ final class ConfigOverride
      * A configuration from config:cache has no markers left: its map is the one the caching application
      * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
      * the same configuration changes nothing — neither the repository nor the registry of immediate reads —
-     * unless the first one failed: a transform that throws on its fallback aborts the install.
+     * unless the first one failed: whatever throws — a transform on its fallback, the module manager, the
+     * logger — aborts the install, and the next call tries again.
      */
     public static function install(ApplicationContract $app): void
     {
@@ -81,26 +82,25 @@ final class ConfigOverride
                 }
             }
         }
-        $installed[$config] = true;
         Arr::set($items, 'onlineconf.map', $map);
-        EagerReads::trim();
 
         if ($map === []) {
             self::writeBack($config, $items);
-
-            return;
+        } else {
+            $manager = ModuleManagerFactory::fromContainer($app);
+            $app->instance(ModuleManager::class, $manager);
+            $app->instance('config', new OverridingRepository(
+                $items,
+                $map,
+                static fn (): Module => $manager->module(),
+                ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
+                $transforms,
+            ));
         }
 
-        $manager = ModuleManagerFactory::fromContainer($app);
-        $app->instance(ModuleManager::class, $manager);
-
-        $app->instance('config', new OverridingRepository(
-            $items,
-            $map,
-            static fn (): Module => $manager->module(),
-            ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
-            $transforms,
-        ));
+        // Only a complete install counts: anything that threw above is tried again by the next call.
+        $installed[$config] = true;
+        EagerReads::trim();
     }
 
     /**

@@ -38,7 +38,10 @@ final class Transform
         }
         if ($transform instanceof Closure) {
             $function = new ReflectionFunction($transform);
-            if ($function->isInternal()) {
+            // A first-class callable of a function — PHP's (trim(...)) or the application's — has no closure
+            // source to store; its name is the storable form. One of a user static method survives as it is.
+            $named = !str_starts_with($function->getName(), '{closure');
+            if ($named && ($function->isInternal() || $function->getClosureScopeClass() === null)) {
                 throw new InvalidArgumentException(sprintf(
                     "%s: %s(...) cannot be stored for config:cache; write '%s' instead",
                     $path,
@@ -62,26 +65,33 @@ final class Transform
     }
 
     /**
-     * @param Encoded $encoded
-     * @param string  $key     the config key, for the message
-     * @param string  $path    the OnlineConf path, for the message
+     * @param Encoded     $encoded
+     * @param string|null $key     the config key, for the message; null for a marker read on its own
+     * @param string      $path    the OnlineConf path, for the message
      *
      * @throws LogicException when the stored form does not give back a callable in this codebase
      */
-    public static function decode(string|array $encoded, string $key, string $path): callable
+    public static function decode(string|array $encoded, ?string $key, string $path): callable
     {
         if (is_array($encoded) && isset($encoded['closure'])) {
-            // Checked before unserialize(), which would raise a notice on anything else.
-            $prefix = sprintf('O:%d:"%s":', strlen(UnsignedSerializableClosure::class), UnsignedSerializableClosure::class);
-            $closure = str_starts_with($encoded['closure'], $prefix) ? unserialize($encoded['closure']) : null;
+            $notAClosure = sprintf('%s: the stored closure is not a serialized closure', self::subject($key, $path));
+            // unserialize() reports a corrupt payload with a notice; turn it into the exception.
+            set_error_handler(static function () use ($notAClosure): never {
+                throw new LogicException($notAClosure);
+            });
+            try {
+                $closure = unserialize($encoded['closure']);
+            } finally {
+                restore_error_handler();
+            }
             if (!$closure instanceof UnsignedSerializableClosure) {
-                throw new LogicException(sprintf('%s (%s): the stored closure is not a serialized closure', $key, $path));
+                throw new LogicException($notAClosure);
             }
 
             return $closure->getClosure();
         }
         if (!is_callable($encoded)) {
-            throw new LogicException(sprintf('%s (%s): %s is not callable', $key, $path, json_encode($encoded)));
+            throw new LogicException(sprintf('%s: %s is not callable', self::subject($key, $path), json_encode($encoded)));
         }
 
         return $encoded;
@@ -91,18 +101,28 @@ final class Transform
      * Runs the transform. Whatever it throws is a programming error in config/*.php, not a missing value, so it
      * propagates — named after the config key and the path, since the stack trace points into this package.
      *
+     * @param string|null $key the config key; null for a marker read on its own
+     *
      * @throws RuntimeException wrapping what the transform threw
      */
-    public static function apply(callable $transform, mixed $value, string $key, string $path): mixed
+    public static function apply(callable $transform, mixed $value, ?string $key, string $path): mixed
     {
         try {
             return $transform($value);
         } catch (Throwable $e) {
             throw new RuntimeException(
-                sprintf('OnlineConf transform of %s (%s) failed: %s', $key, $path, $e->getMessage()),
+                sprintf('OnlineConf transform of %s failed: %s', self::subject($key, $path), $e->getMessage()),
                 previous: $e,
             );
         }
+    }
+
+    /**
+     * "app.hosts (/my/hosts)", or just the path when there is no config key.
+     */
+    private static function subject(?string $key, string $path): string
+    {
+        return $key === null ? $path : sprintf('%s (%s)', $key, $path);
     }
 
     /**
