@@ -74,8 +74,12 @@ final class Ref
      * unserialized on every call. A marker read this way is not in the derived map unless it also sits in a
      * config file, so onlineconf:map does not list the read.
      *
-     * @throws \Onlineconf\Exception\OnlineconfException for a required marker whose node or module is missing
-     * @throws \RuntimeException                          when the transform throws
+     * @throws \Onlineconf\Exception\NotFoundException|\Onlineconf\Exception\OpenException for a required marker whose
+     *         node or module is missing
+     * @throws \Onlineconf\Exception\FormatException|\Onlineconf\Exception\ParseException|\Onlineconf\Exception\InvalidJsonException
+     *         for a required marker whose node does not parse
+     * @throws LogicException    when the stored transform is not a callable in this codebase
+     * @throws \RuntimeException when the transform throws
      */
     public function value(): mixed
     {

@@ -51,9 +51,11 @@ final class MapCommandTest extends TestCase
     public function testTableListsTheDerivedMapAndTheEagerReads(): void
     {
         EagerReads::record('/app/eager', Ref::TYPE_INT, 5);
+        EagerReads::record('/app/must', Ref::TYPE_STRING, null, true);
         $this->install();
 
         [$code, $output] = $this->runCommand();
+        self::assertMatchesRegularExpression('/\/app\/must\s*\|\s*string\s*\|\s*yes\s*\|/', $output, 'required immediate reads are marked');
 
         self::assertSame(0, $code);
         self::assertStringContainsString('app.name', $output);
@@ -87,7 +89,7 @@ final class MapCommandTest extends TestCase
         self::assertCount(1, $eager);
         $read = $eager[0];
         self::assertIsArray($read);
-        self::assertSame(['path' => '/app/eager', 'type' => 'int', 'default' => 5], $read);
+        self::assertSame(['path' => '/app/eager', 'type' => 'int', 'default' => 5, 'required' => false], $read);
     }
 
     public function testNothingToShow(): void

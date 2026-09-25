@@ -278,7 +278,7 @@ final class ConfigOverrideTest extends TestCase
             $listed = json_decode($output->fetch(), true, 512, JSON_THROW_ON_ERROR);
             self::assertIsArray($listed);
             self::assertSame(
-                [['path' => '/probe/eager', 'type' => 'string', 'default' => 'from config']],
+                [['path' => '/probe/eager', 'type' => 'string', 'default' => 'from config', 'required' => false]],
                 $listed['eager'],
                 'the second install is a no-op for the registry as well',
             );
@@ -379,6 +379,7 @@ final class ConfigOverrideTest extends TestCase
     {
         $this->useModule(['/app/name' => 'sFrom OnlineConf']);
         $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+        EagerReads::record('/app/eager', Ref::TYPE_STRING, 'dflt');
         $logger = new \stdClass();
         $logger->broken = true;
         $this->application()->bind(LoggerInterface::class, static function () use ($logger): LoggerInterface {
@@ -401,5 +402,6 @@ final class ConfigOverrideTest extends TestCase
 
         self::assertInstanceOf(OverridingRepository::class, $this->config(), 'the failed install was not remembered as done');
         self::assertSame('From OnlineConf', config('app.name'));
+        self::assertCount(1, EagerReads::all(), 'the immediate reads of the load survive the failed attempt');
     }
 }

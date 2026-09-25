@@ -11,13 +11,16 @@ use Illuminate\Log\LogManager;
 use Illuminate\Support\Facades\Facade;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ImmediateModule;
+use Onlineconf\Laravel\MarkerReader;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Tests\Support\Csv;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Ref::value(): a marker read on its own, through the facade's immediate read of its type.
@@ -188,5 +191,80 @@ final class RefValueTest extends TestCase
 
         $this->expectException(OpenException::class);
         Onlineconf::requireRefString('/app/name')->value();
+    }
+
+    /**
+     * type, the stored value, a fallback of that type, the expected value.
+     *
+     * @return array<string, array{string, string, mixed, mixed}>
+     */
+    public static function everyType(): array
+    {
+        return [
+            'string' => [Ref::TYPE_STRING, 'stext', 'dflt', 'text'],
+            'int' => [Ref::TYPE_INT, 's42', 1, 42],
+            'float' => [Ref::TYPE_FLOAT, 's0.25', 1.0, 0.25],
+            'bool' => [Ref::TYPE_BOOL, 's1', false, true],
+            'duration' => [Ref::TYPE_DURATION, 's1m', 1.0, 60.0],
+            'duration_ms' => [Ref::TYPE_DURATION_MS, 's1.5s', 1, 1500],
+            'strings' => [Ref::TYPE_STRINGS, 'sa, b', ['x'], ['a', 'b']],
+            'array' => [Ref::TYPE_ARRAY, 'j{"pool":5}', [], ['pool' => 5]],
+            'raw' => [Ref::TYPE_RAW, 'stext', 'dflt', 'text'],
+        ];
+    }
+
+    #[DataProvider('everyType')]
+    public function testEveryTypeReadsItsNode(string $type, string $stored, mixed $fallback, mixed $expected): void
+    {
+        $this->useModule(['/node' => $stored]);
+
+        self::assertSame($expected, (new Ref('/node', $type, $fallback))->value(), 'with a fallback of the type');
+        self::assertSame($expected, (new Ref('/node', $type, null))->value(), 'with a null fallback');
+        self::assertSame($expected, (new Ref('/node', $type, null, true))->value(), 'required');
+        self::assertSame($fallback, (new Ref('/gone', $type, $fallback))->value(), 'absent: the fallback');
+    }
+
+    public function testInvalidJsonLogsAnErrorAndFallsBackUnlessRequired(): void
+    {
+        $this->useModule(['/app/opts' => 'j{not json']);
+        $log = $this->probe();
+
+        self::assertSame(['pool' => 1], Onlineconf::getRefArray('/app/opts', ['pool' => 1])->value());
+        self::assertNull(Onlineconf::getRefArray('/app/opts', null)->value());
+        self::assertCount(2, $log->getRecords());
+        self::assertTrue($log->hasErrorThatContains('/app/opts'), 'as config() does');
+
+        $this->expectException(InvalidJsonException::class);
+        Onlineconf::requireRefArray('/app/opts')->value();
+    }
+
+    public function testARequiredMarkerWithoutItsNodeThrowsWhileTheConfigurationLoads(): void
+    {
+        $this->duringConfigLoad();
+
+        $this->expectException(NotFoundException::class);
+        Onlineconf::requireRefString('/app/gone')->value();
+    }
+
+    public function testAnImmediateReadRecordsWhetherItWasRequired(): void
+    {
+        $this->duringConfigLoad();
+
+        Onlineconf::getRefString('/app/name', 'dflt')->value();
+        Onlineconf::requireRefInt('/app/workers')->value();
+
+        $reads = EagerReads::all();
+        self::assertFalse($reads[0]->required);
+        self::assertTrue($reads[1]->required);
+    }
+
+    public function testAStoredClosureIsDecodedOncePerMarker(): void
+    {
+        $this->useModule(self::MODULE);
+        $ref = Onlineconf::getRefString('/app/hosts', null, static fn (?string $hosts): array => Csv::split($hosts));
+
+        self::assertSame(['x', 'y'], $ref->value());
+        self::assertSame(MarkerReader::transform($ref), MarkerReader::transform($ref), 'the decoded closure is kept for the marker');
+        self::assertSame(['x', 'y'], $ref->value());
     }
 }

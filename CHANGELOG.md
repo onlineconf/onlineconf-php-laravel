@@ -11,14 +11,18 @@
   `config:cache` have the final shape; the derived map keeps the raw fallback and the stored transform.
 - The transformed node value is memoised per config key until the module version changes.
 - A transform may be a `Closure` (stored unsigned with `laravel/serializable-closure`, now a direct
-  dependency), a function name or a `[class, static method]` pair; an invokable object, an object method or a
-  first-class callable of a PHP function is an `InvalidArgumentException` naming the path when the marker is
-  built. Closures survive `config:cache` whatever `APP_KEY` is set, now or later.
+  dependency; a user static method's `Class::method(...)` included), a function name or a `[class, static
+  method]` pair. An invokable object, an object method (`[$obj, 'm']`, `$obj->m(...)`) and a first-class
+  callable of a function or of a PHP class's static method are an `InvalidArgumentException` naming the path
+  and the storable form, when the marker is built. Closures survive `config:cache` whatever `APP_KEY` is set,
+  now or later, and whatever their source raises when it is compiled again.
 - A transform that throws propagates as a `RuntimeException` naming the config key and the path. The memo is
   shared between the clones Octane makes of the configuration repository per request.
 - `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
-- `Ref::value()`: a marker reads its node on demand — the facade's immediate read of its type, with the same
-  absence rules, then its transform. For code outside `config/*.php`; such reads are not in `onlineconf:map`.
+- `Ref::value()`: a marker reads its node on demand — the facade's immediate read of its type, with the
+  absence rules of `config()`, then its transform. For code outside `config/*.php`; a read after boot is not
+  listed by `onlineconf:map`, one while the configuration loads is among its immediate reads.
+- `onlineconf:map` shows whether an immediate read was a `require*` (`Required` column, `required` in `--json`).
 
 ### Upgrading and rolling back
 

@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel;
 
 use Illuminate\Contracts\Config\Repository;
+use LogicException;
 use Onlineconf\Exception\FormatException;
+use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Exception\ParseException;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Module;
+use RuntimeException;
+use WeakMap;
 
 /**
  * What {@see Ref::value()} does: read the node through the facade's immediate read of the marker's type — so
@@ -34,18 +38,36 @@ final class MarkerReader
         Ref::TYPE_RAW => '',
     ];
 
+    /** @var WeakMap<Ref, callable>|null a marker's transform, decoded on its first read */
+    private static ?WeakMap $transforms = null;
+
     /**
-     * @throws \Onlineconf\Exception\OnlineconfException for a required marker whose node or module is missing
-     * @throws \RuntimeException                          when the transform throws
+     * @throws NotFoundException|OpenException              for a required marker whose node or module is missing
+     * @throws FormatException|ParseException|InvalidJsonException for a required marker whose node does not parse
+     * @throws LogicException                               when the stored transform is not a callable here
+     * @throws RuntimeException                             when the transform throws
      */
     public static function read(Ref $ref): mixed
     {
         $value = self::node($ref);
-        if ($ref->transform === null) {
-            return $value;
-        }
+        $transform = self::transform($ref);
 
-        return Transform::apply(Transform::decode($ref->transform, null, $ref->path), $value, null, $ref->path);
+        return $transform === null ? $value : Transform::apply($transform, $value, null, $ref->path);
+    }
+
+    /**
+     * The marker's transform, decoded once per marker; the value itself is never kept.
+     *
+     * @throws LogicException when the stored transform is not a callable here
+     */
+    public static function transform(Ref $ref): ?callable
+    {
+        if ($ref->transform === null) {
+            return null;
+        }
+        $transforms = self::$transforms ??= new WeakMap();
+
+        return $transforms[$ref] ??= Transform::decode($ref->transform, null, $ref->path);
     }
 
     private static function node(Ref $ref): mixed
@@ -65,17 +87,28 @@ final class MarkerReader
         } catch (NotFoundException|OpenException) {
             return $ref->fallback;
         } catch (FormatException|ParseException $e) {
-            self::warn($e->getMessage());
+            self::log('warning', 'onlineconf: ' . $e->getMessage());
+
+            return $ref->fallback;
+        } catch (InvalidJsonException $e) {
+            self::log('error', sprintf(
+                'OnlineConf value at %s is not valid JSON, the marker falls back to its fallback: %s',
+                $ref->path,
+                $e->getMessage(),
+            ));
 
             return $ref->fallback;
         }
     }
 
     /**
-     * The warning the client's get* would log. While config/*.php loads there is no logger yet and the
-     * immediate module logs nothing either.
+     * What config() would log for the same node: the client's warning for a value that does not parse, an
+     * error for invalid JSON. While config/*.php loads there is no logger yet and the immediate module logs
+     * nothing either.
+     *
+     * @param 'warning'|'error' $level
      */
-    private static function warn(string $message): void
+    private static function log(string $level, string $message): void
     {
         $app = Onlineconf::getFacadeApplication();
         if ($app === null || !$app->bound(Module::class)) {
@@ -84,6 +117,6 @@ final class MarkerReader
         $config = $app->make('config');
         assert($config instanceof Repository);
 
-        ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel'))->warning('onlineconf: ' . $message);
+        ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel'))->log($level, $message);
     }
 }

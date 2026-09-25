@@ -339,9 +339,11 @@ Every lazy marker takes an optional transform — the last argument: `getRef*($p
   instance. Keep it a pure function of its argument.
 - **It must be storable**, because `config:cache` writes the configuration with `var_export()`: a `Closure`
   (stored with `laravel/serializable-closure`), a function name (`'strtolower'`) or a static method
-  (`[Csv::class, 'split']`). Rejected with an `InvalidArgumentException` naming the path, when the marker is
-  built: an invokable object, an object method, and a first-class callable of a PHP function (`trim(...)`,
-  write `'trim'` instead). A function that does not exist, or a non-static method written as
+  (`[Csv::class, 'split']`, or `Csv::split(...)`). Rejected with an `InvalidArgumentException` naming the path
+  and the form to write instead, when the marker is built: an invokable object, an object method (`[$obj, 'm']`
+  or `$obj->m(...)`), a first-class callable of a function (`trim(...)` or one of the application's: write
+  `'trim'`) and of a PHP class's static method (`DateTime::createFromFormat(...)`: write
+  `[DateTime::class, 'createFromFormat']`). A function that does not exist, or a non-static method written as
   `[Csv::class, 'method']`, is not a callable at all: PHP rejects it with a `TypeError` for the `?callable`
   parameter.
 - **A closure is serialized when the marker is built**: its `use` variables are copied then, and a
@@ -357,20 +359,21 @@ Every lazy marker takes an optional transform — the last argument: `getRef*($p
 
 A marker can also read its node on demand: `$ref->value()` returns the node's value right now, through the
 marker's transform. It is the facade's immediate read of the declared type — `get<Type>($path, $fallback)`,
-or `require<Type>($path)` for a `requireRef*()` marker — so it works after boot and while `config/*.php` loads,
-with the same absence rules: no module or no node gives the fallback (the client's exception for a required
-marker), an unparsable node gives the client's warning and the fallback.
+or `require<Type>($path)` for a `requireRef*()` marker — so it works both while `config/*.php` loads and after
+boot, which here means after the package's service provider has registered. The absence rules are those of
+`config()`: no module or no node gives the fallback (the client's exception for a required marker), a value
+that does not parse gives the client's warning and the fallback, invalid JSON an error and the fallback.
 
 ```php
-$hosts = Onlineconf::getRefString('/my/service/hosts', env('SERVICE_HOSTS'), [Csv::class, 'split']);
+$hosts = Onlineconf::getRefString('/my/service/hosts', config('services.hosts'), [Csv::class, 'split']);
 
-$hosts->value();   // the list, read now; the same marker can also sit in a config file
+$hosts->value();   // the list, read now
 ```
 
 It is there for code outside `config/*.php` that wants one declaration — path, type, fallback, transform — in
-several places. Such a read is invisible to `onlineconf:map`, which lists only what the configuration refers
-to; inside config files prefer a plain marker (lazy) or `get*()` (immediate). Nothing is memoised by the
-marker: the client caches the raw values per module version, and a stored closure is unserialized on each call.
+several places. `onlineconf:map` does not list a read after boot; a read while the configuration loads appears
+among its immediate reads. Inside config files prefer a plain marker (lazy) or `get*()` (immediate). Nothing is
+memoised but the decoded transform: the client caches the raw values per module version.
 
 ### What immediate reads cost
 

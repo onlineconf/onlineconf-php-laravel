@@ -117,7 +117,7 @@ final class Onlineconf extends Facade
         $default = $optional ? ($args['default'] ?? $positional[1] ?? null) : null;
         $path = $args['path'] ?? $positional[0] ?? null;
         if ($type !== null && is_string($path)) {
-            EagerReads::record($path, $type, $default);
+            EagerReads::record($path, $type, $default, !$optional);
         }
 
         try {

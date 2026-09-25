@@ -58,8 +58,13 @@ final class MapCommand extends Command
         if ($reads !== []) {
             $this->output->writeln('Read while the configuration was loading:');
             $this->table(
-                ['Path', 'Type', 'Default'],
-                array_map(static fn (EagerRead $read): array => [$read->path, $read->type, self::printable($read->default)], $reads),
+                ['Path', 'Type', 'Required', 'Default'],
+                array_map(static fn (EagerRead $read): array => [
+                    $read->path,
+                    $read->type,
+                    $read->required ? 'yes' : 'no',
+                    self::printable($read->default),
+                ], $reads),
             );
         }
 
@@ -92,6 +97,7 @@ final class MapCommand extends Command
                     'path' => $read->path,
                     'type' => $read->type,
                     'default' => $read->default,
+                    'required' => $read->required,
                 ], $reads),
             ],
             JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT,
