@@ -62,7 +62,7 @@ final class OverridingRepository extends Repository
         // sets a closure signer once the encryption provider registers, and would then reject these.
         foreach ($map as $key => $entry) {
             if ($entry['transform'] !== null) {
-                $this->transforms[$key] = Transform::decode($entry['transform']);
+                $this->transforms[$key] = Transform::decode($entry['transform'], $key, $entry['path']);
             }
         }
         $this->index();

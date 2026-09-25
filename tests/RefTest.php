@@ -148,7 +148,7 @@ final class RefTest extends PHPUnitTestCase
         self::assertInstanceOf(Ref::class, $restored);
         self::assertSame($ref->transform, $restored->transform);
         self::assertIsArray($restored->transform);
-        self::assertSame(['a', 'b'], Transform::decode($restored->transform)('a,b'));
+        self::assertSame(['a', 'b'], Transform::decode($restored->transform, 'app.hosts', '/a')('a,b'));
     }
 
     public function testATransformThatCannotBeCachedIsRejectedAtTheMarker(): void

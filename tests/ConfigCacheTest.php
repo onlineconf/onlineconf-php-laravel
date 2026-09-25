@@ -15,6 +15,7 @@ use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\Console\MapCommand;
 use Onlineconf\Laravel\EagerReads;
+use Onlineconf\Laravel\Transform;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -230,6 +231,68 @@ final class ConfigCacheTest extends TestCase
                 self::assertSame(['a', 'b'], $all['app']['hosts'], 'the cached fallback is already shaped');
             } finally {
                 $cached->flush();
+            }
+        } finally {
+            SerializableClosure::setSecretKey(null);
+        }
+    }
+
+    /**
+     * @return array<string, array{string|null, string|null}>
+     */
+    public static function signersAroundTheBoot(): array
+    {
+        return [
+            // EncryptionServiceProvider sets app.key as the signer after the configuration is loaded.
+            'Laravel sets its signer after the boot' => [null, 'base64:app-key'],
+            'a signer left over from an earlier boot' => ['base64:earlier-key', null],
+        ];
+    }
+
+    #[DataProvider('signersAroundTheBoot')]
+    public function testANonStaticClosureInAConfigFileIgnoresLaravelsSigner(?string $beforeBoot, ?string $afterBoot): void
+    {
+        $this->writeModule(['/probe/hosts' => 'sx, y']);
+        $base = $this->tempDir() . '/app';
+        mkdir($base . '/config', 0o700, true);
+        // The consumer's form: a plain (non-static) arrow function in a config file loaded by LoadConfiguration.
+        file_put_contents($base . '/config/app.php', <<<'APP'
+            <?php
+
+            use Onlineconf\Laravel\Facades\Onlineconf;
+
+            return [
+                'hosts' => Onlineconf::getRefString('/probe/hosts', 'a, b', fn (?string $value): array => array_map('trim', explode(',', (string) $value))),
+                'env' => 'testing',
+                'timezone' => 'UTC',
+            ];
+            APP);
+        file_put_contents(
+            $base . '/config/logging.php',
+            "<?php return ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \\Monolog\\Handler\\NullHandler::class]]];",
+        );
+        file_put_contents(
+            $base . '/config/onlineconf.php',
+            sprintf("<?php return ['dir' => %s, 'check_interval' => 0];", var_export($this->tempDir(), true)),
+        );
+
+        try {
+            SerializableClosure::setSecretKey($beforeBoot);
+            $app = $this->boot($base);
+            SerializableClosure::setSecretKey($afterBoot);
+            try {
+                $config = $app->make(Repository::class);
+                assert($config instanceof Repository);
+                self::assertSame(['x', 'y'], $config->get('app.hosts'));
+                $map = $config->get('onlineconf.map');
+                self::assertIsArray($map);
+                $entry = $map['app.hosts'] ?? null;
+                self::assertIsArray($entry);
+                $transform = $entry['transform'] ?? null;
+                self::assertTrue(Transform::isEncoded($transform));
+                self::assertSame(['p', 'q'], Transform::decode($transform, 'app.hosts', '/probe/hosts')('p, q'), 'decodable under any signer');
+            } finally {
+                $app->flush();
             }
         } finally {
             SerializableClosure::setSecretKey(null);

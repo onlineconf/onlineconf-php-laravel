@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Laravel\SerializableClosure\SerializableClosure;
 use Onlineconf\Laravel\Tests\Support\Csv;
 use Onlineconf\Laravel\Transform;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -11,6 +12,11 @@ use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class TransformTest extends PHPUnitTestCase
 {
+    protected function tearDown(): void
+    {
+        SerializableClosure::setSecretKey(null);
+    }
+
     public function testAClosureIsStoredSerializedAndComesBackCallable(): void
     {
         $suffix = '!';
@@ -20,7 +26,31 @@ final class TransformTest extends PHPUnitTestCase
         self::assertArrayHasKey('closure', $encoded);
         $restored = eval('return ' . var_export($encoded, true) . ';');
         self::assertTrue(Transform::isEncoded($restored), 'var_export() keeps it, as config:cache needs');
-        self::assertSame('a!', Transform::decode($restored)('a'), 'use variables are kept');
+        self::assertSame('a!', Transform::decode($restored, 'app.key', '/p')('a'), 'use variables are kept');
+    }
+
+    /**
+     * @return array<string, array{string|null, string|null}>
+     */
+    public static function signers(): array
+    {
+        return [
+            'no signer when stored, one when read' => [null, 'base64:read-key'],
+            'a signer when stored, none when read' => ['base64:store-key', null],
+            'two different signers' => ['base64:old-key', 'base64:rotated-key'],
+        ];
+    }
+
+    #[DataProvider('signers')]
+    public function testAStoredClosureDoesNotDependOnLaravelsSigner(?string $whenStored, ?string $whenRead): void
+    {
+        SerializableClosure::setSecretKey($whenStored);
+        $encoded = Transform::encode('/p', static fn (string $value): string => strtoupper($value));
+
+        SerializableClosure::setSecretKey($whenRead);
+
+        self::assertIsArray($encoded);
+        self::assertSame('A', Transform::decode($encoded, 'app.key', '/p')('a'), 'the stored closure is unsigned');
     }
 
     public function testFunctionNamesAndStaticMethodsAreStoredAsTheyAre(): void
@@ -29,13 +59,21 @@ final class TransformTest extends PHPUnitTestCase
         self::assertSame([Csv::class, 'split'], Transform::encode('/p', [Csv::class, 'split']));
         self::assertSame(Csv::class . '::split', Transform::encode('/p', Csv::class . '::split'));
 
-        self::assertSame('A', Transform::decode('strtoupper')('a'));
-        self::assertSame(['a', 'b'], Transform::decode([Csv::class, 'split'])('a, b'));
+        self::assertSame('A', Transform::decode('strtoupper', 'app.key', '/p')('a'));
+        self::assertSame(['a', 'b'], Transform::decode([Csv::class, 'split'], 'app.key', '/p')('a, b'));
     }
 
     public function testNoTransformIsNull(): void
     {
         self::assertNull(Transform::encode('/p', null));
+    }
+
+    public function testAFirstClassCallableOfAnInternalFunctionIsRejectedWithTheStringForm(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("/my/path: trim(...) cannot be stored for config:cache; write 'trim' instead");
+
+        Transform::encode('/my/path', trim(...));
     }
 
     public function testAnInvokableObjectIsRejected(): void
@@ -54,12 +92,28 @@ final class TransformTest extends PHPUnitTestCase
         Transform::encode('/my/path', [new Csv(), 'split']);
     }
 
-    public function testAStoredNameThatIsNotCallableFails(): void
+    public function testAStoredNameThatIsNotCallableNamesTheKeyAndPath(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('no_such_function_in_this_codebase');
+        $this->expectExceptionMessage('app.key (/p): "no_such_function_in_this_codebase" is not callable');
 
-        Transform::decode('no_such_function_in_this_codebase');
+        Transform::decode('no_such_function_in_this_codebase', 'app.key', '/p');
+    }
+
+    public function testAStoredClosureThatIsNotOneNamesTheKeyAndPath(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('app.key (/p): the stored closure is not a serialized closure');
+
+        Transform::decode(['closure' => 'garbage'], 'app.key', '/p');
+    }
+
+    public function testAStoredClosureOfAnotherClassNamesTheKeyAndPath(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('app.key (/p): the stored closure is not a serialized closure');
+
+        Transform::decode(['closure' => serialize(new SerializableClosure(static fn (): int => 1))], 'app.key', '/p');
     }
 
     /**

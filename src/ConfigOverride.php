@@ -119,7 +119,7 @@ final class ConfigOverride
                 // already have the final shape; a required marker has no fallback to shape.
                 $items[$key] = $value->transform === null || $value->required
                     ? $value->fallback
-                    : Transform::decode($value->transform)($value->fallback);
+                    : Transform::decode($value->transform, $dotted, $value->path)($value->fallback);
 
                 continue;
             }
