@@ -10,10 +10,12 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Facade;
+use Laravel\SerializableClosure\SerializableClosure;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\Console\MapCommand;
 use Onlineconf\Laravel\EagerReads;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -154,6 +156,83 @@ final class ConfigCacheTest extends TestCase
             );
         } finally {
             $cached->flush();
+        }
+    }
+
+    /**
+     * @return array<string, array{string|null, string|null}>
+     */
+    public static function signers(): array
+    {
+        return [
+            // php artisan config:cache: the outer application's encryption provider has set app.key as the
+            // closure signer; the cached boot of the next process installs the override before any provider.
+            'signed while caching, read before providers' => ['base64:caching-key', null],
+            'no signer anywhere' => [null, null],
+            'the same signer on both ends' => ['base64:shared-key', 'base64:shared-key'],
+        ];
+    }
+
+    #[DataProvider('signers')]
+    public function testAClosureTransformSurvivesTheCache(?string $cachingSigner, ?string $readingSigner): void
+    {
+        $this->writeModule(['/probe/hosts' => 'sx, y, z']);
+        $base = $this->tempDir() . '/app';
+        mkdir($base . '/config', 0o700, true);
+        mkdir($base . '/bootstrap/cache', 0o700, true);
+        file_put_contents($base . '/config/app.php', <<<'APP'
+            <?php
+
+            use Onlineconf\Laravel\Facades\Onlineconf;
+
+            $separator = ',';
+
+            return [
+                'hosts' => Onlineconf::getRefString(
+                    '/probe/hosts',
+                    'a, b',
+                    static fn (?string $value): array => array_map('trim', explode($separator, (string) $value)),
+                ),
+                'env' => 'testing',
+                'timezone' => 'UTC',
+            ];
+            APP);
+        file_put_contents(
+            $base . '/config/logging.php',
+            "<?php return ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \\Monolog\\Handler\\NullHandler::class]]];",
+        );
+        file_put_contents(
+            $base . '/config/onlineconf.php',
+            sprintf("<?php return ['dir' => %s, 'check_interval' => 0];", var_export($this->tempDir(), true)),
+        );
+
+        try {
+            SerializableClosure::setSecretKey($cachingSigner);
+            $caching = $this->boot($base);
+            $loaded = $caching->make(Repository::class);
+            assert($loaded instanceof Repository);
+            self::assertSame(['x', 'y', 'z'], $loaded->get('app.hosts'));
+            // What ConfigCacheCommand does: write with var_export(), then require the file to check it.
+            $cache = $caching->getCachedConfigPath();
+            file_put_contents($cache, '<?php return ' . var_export($loaded->all(), true) . ';' . PHP_EOL);
+            $caching->flush();
+            self::assertIsArray(require $cache, 'Laravel\'s "configuration files are not serializable" check passes');
+
+            SerializableClosure::setSecretKey($readingSigner);
+            $cached = $this->boot($base);
+            try {
+                self::assertTrue($cached->configurationIsCached());
+                $config = $cached->make(Repository::class);
+                assert($config instanceof Repository);
+                self::assertSame(['x', 'y', 'z'], $config->get('app.hosts'), 'the node value through the cached closure');
+                $all = $config->all();
+                self::assertIsArray($all['app']);
+                self::assertSame(['a', 'b'], $all['app']['hosts'], 'the cached fallback is already shaped');
+            } finally {
+                $cached->flush();
+            }
+        } finally {
+            SerializableClosure::setSecretKey(null);
         }
     }
 
