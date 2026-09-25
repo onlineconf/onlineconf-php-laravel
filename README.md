@@ -353,6 +353,25 @@ Every lazy marker takes an optional transform — the last argument: `getRef*($p
 - The immediate `get*()` / `require*()` take no transform: the config file can wrap them directly.
 - `onlineconf:map` marks transformed keys in its `Transform` column and shows the fallback as written.
 
+### Reading a marker on its own
+
+A marker can also read its node on demand: `$ref->value()` returns the node's value right now, through the
+marker's transform. It is the facade's immediate read of the declared type — `get<Type>($path, $fallback)`,
+or `require<Type>($path)` for a `requireRef*()` marker — so it works after boot and while `config/*.php` loads,
+with the same absence rules: no module or no node gives the fallback (the client's exception for a required
+marker), an unparsable node gives the client's warning and the fallback.
+
+```php
+$hosts = Onlineconf::getRefString('/my/service/hosts', env('SERVICE_HOSTS'), [Csv::class, 'split']);
+
+$hosts->value();   // the list, read now; the same marker can also sit in a config file
+```
+
+It is there for code outside `config/*.php` that wants one declaration — path, type, fallback, transform — in
+several places. Such a read is invisible to `onlineconf:map`, which lists only what the configuration refers
+to; inside config files prefer a plain marker (lazy) or `get*()` (immediate). Nothing is memoised by the
+marker: the client caches the raw values per module version, and a stored closure is unserialized on each call.
+
 ### What immediate reads cost
 
 `get*()` in `config/*.php` runs before the service providers, so the facade cannot use the container:

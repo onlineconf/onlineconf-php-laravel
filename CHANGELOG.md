@@ -17,6 +17,8 @@
 - A transform that throws propagates as a `RuntimeException` naming the config key and the path. The memo is
   shared between the clones Octane makes of the configuration repository per request.
 - `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
+- `Ref::value()`: a marker reads its node on demand — the facade's immediate read of its type, with the same
+  absence rules, then its transform. For code outside `config/*.php`; such reads are not in `onlineconf:map`.
 
 ### Upgrading and rolling back
 
