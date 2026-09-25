@@ -28,8 +28,9 @@ final class Transform
     /**
      * @return Encoded|null
      *
-     * @throws InvalidArgumentException for a callable config:cache cannot store: an object, an object method,
-     *                                  or a first-class callable of a PHP function (store its name instead)
+     * @throws InvalidArgumentException for a callable config:cache cannot store — an invokable object, an object
+     *                                  method ([$obj, 'm'] or $obj->m(...)), a first-class callable of a function
+     *                                  or of a PHP class's static method — naming the form to write instead
      */
     public static function encode(string $path, ?callable $transform): string|array|null
     {
@@ -63,10 +64,7 @@ final class Transform
     public static function decode(string|array $encoded, ?string $key, string $path): callable
     {
         if (is_array($encoded) && isset($encoded['closure'])) {
-            return self::unserializeClosure($encoded['closure'], sprintf(
-                '%s: the stored closure is not a serialized closure',
-                self::subject($key, $path),
-            ));
+            return self::unserializeClosure($encoded['closure'], self::subject($key, $path));
         }
         if (!is_callable($encoded)) {
             throw new LogicException(sprintf('%s: %s is not callable', self::subject($key, $path), json_encode($encoded)));
@@ -108,10 +106,12 @@ final class Transform
             return;
         }
         $scope = $function->getClosureScopeClass();
-        if ($function->getClosureThis() !== null) {
+        $object = $function->getClosureThis();
+        if ($object !== null) {
             throw new InvalidArgumentException(sprintf(
-                "%s: an object's %s(...) cannot be stored for config:cache; use a static method as [Class::class, 'method']",
+                "%s: %s->%s(...) cannot be stored for config:cache; use a static method as [Class::class, 'method']",
                 $path,
+                get_class($object),
                 $name,
             ));
         }
@@ -132,23 +132,25 @@ final class Transform
 
     /**
      * unserialize() of a stored closure. Only unserialize()'s own complaint — a notice or warning about the
-     * payload — means the payload is not one; the closure source is compiled again in there, so whatever it
-     * raises (a deprecation on a newer PHP, say) goes on to the handler that was there before.
+     * payload — means the payload is not one. The closure source is compiled again in there, so whatever else
+     * is raised (a deprecation on a newer PHP, a use variable's warning) goes to the handler that was there
+     * before, as if this one were not installed; with none, to PHP's own.
      *
-     * @throws LogicException with $notAClosure
+     * @throws LogicException with $notAClosure, or that the closure could not be restored
      */
-    private static function unserializeClosure(string $payload, string $notAClosure): Closure
+    private static function unserializeClosure(string $payload, string $subject): Closure
     {
+        $notAClosure = sprintf('%s: the stored closure is not a serialized closure', $subject);
         $previous = null;
         $previous = set_error_handler(
             static function (int $level, string $message, string $file = '', int $line = 0) use (&$previous, $notAClosure): bool {
-                if (str_starts_with($message, 'unserialize()')) {
+                if (($level & (E_NOTICE | E_WARNING)) !== 0 && str_starts_with($message, 'unserialize()')) {
                     throw new LogicException($notAClosure);
                 }
 
-                return is_callable($previous) && (bool) $previous($level, $message, $file, $line);
+                // A handler that returns nothing has handled the error: only false lets PHP's own run.
+                return is_callable($previous) && $previous($level, $message, $file, $line) !== false;
             },
-            E_NOTICE | E_WARNING,
         );
         try {
             $closure = unserialize($payload);
@@ -158,10 +160,15 @@ final class Transform
 
             return $closure->getClosure();
         } catch (Throwable $e) {
-            throw $e instanceof LogicException && $e->getMessage() === $notAClosure ? $e : new LogicException($notAClosure, 0, $e);
+            throw $e instanceof LogicException && $e->getMessage() === $notAClosure ? $e : self::notRestored($subject, $e);
         } finally {
             restore_error_handler();
         }
+    }
+
+    private static function notRestored(string $subject, Throwable $e): LogicException
+    {
+        return new LogicException(sprintf('%s: the stored closure could not be restored: %s', $subject, $e->getMessage()), 0, $e);
     }
 
     /**

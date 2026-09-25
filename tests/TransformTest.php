@@ -6,10 +6,10 @@ namespace Onlineconf\Laravel\Tests;
 
 use Laravel\SerializableClosure\SerializableClosure;
 use Onlineconf\Laravel\Tests\Support\Csv;
+use Onlineconf\Laravel\Tests\Support\RecordingErrorHandler;
 use Onlineconf\Laravel\Tests\Support\Wakeup;
 use Onlineconf\Laravel\Transform;
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class TransformTest extends PHPUnitTestCase
@@ -129,23 +129,54 @@ final class TransformTest extends PHPUnitTestCase
         Transform::decode('no_such_function_in_this_codebase', null, '/p');
     }
 
-    #[IgnoreDeprecations]
-    public function testAClosureWhoseSourceIsDeprecatedStillDecodes(): void
+    public function testAClosureWhoseSourceIsDeprecatedStillDecodesAndThePreviousHandlerSeesIt(): void
     {
         // Optional before required is deprecated at compile time since PHP 8.0: SerializableClosure compiles the
         // source again inside unserialize(), and that deprecation is not unserialize() complaining.
         $file = sys_get_temp_dir() . '/onlineconf-deprecated-' . bin2hex(random_bytes(6)) . '.php';
         file_put_contents($file, "<?php\nreturn static fn (string \$prefix = 'x', string \$value): string => \$prefix . \$value;\n");
+        $compiling = new RecordingErrorHandler();
+        $decoding = new RecordingErrorHandler();
+        set_error_handler($compiling);
         try {
             $closure = require $file;
             self::assertInstanceOf(\Closure::class, $closure);
             $encoded = Transform::encode('/p', $closure);
+            self::assertIsArray($encoded);
+            set_error_handler($decoding);
+            try {
+                $decoded = Transform::decode($encoded, 'app.key', '/p');
+            } finally {
+                restore_error_handler();
+            }
         } finally {
+            restore_error_handler();
             unlink($file);
         }
-        self::assertIsArray($encoded);
 
-        self::assertSame('ab', Transform::decode($encoded, 'app.key', '/p')('a', 'b'));
+        self::assertSame('ab', $decoded('a', 'b'));
+        self::assertCount(1, $decoding->errors, 'the deprecation reached the handler that was there before');
+        self::assertSame(E_DEPRECATED, $decoding->errors[0][0]);
+        self::assertStringContainsString('Optional parameter', $decoding->errors[0][1]);
+    }
+
+    public function testAPreviousHandlerThatReturnsNothingStillHandlesTheError(): void
+    {
+        $wakeup = new Wakeup('warn');
+        $encoded = Transform::encode('/p', static fn (string $name): string => $wakeup->greet($name));
+        self::assertIsArray($encoded);
+        // Laravel's HandleExceptions::handleError() returns nothing for what it only logs.
+        $handler = new RecordingErrorHandler(returnNothing: true);
+        set_error_handler($handler);
+        error_clear_last();
+        try {
+            Transform::decode($encoded, 'app.key', '/p');
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertCount(1, $handler->errors);
+        self::assertNull(error_get_last(), "PHP's own handler did not run as well");
     }
 
     public function testAWarningDuringUnserializeThatIsNotUnserializesOwnGoesToThePreviousHandler(): void
@@ -180,7 +211,7 @@ final class TransformTest extends PHPUnitTestCase
             Transform::decode($encoded, 'app.key', '/p');
             self::fail('the stored closure cannot be restored');
         } catch (\LogicException $e) {
-            self::assertSame('app.key (/p): the stored closure is not a serialized closure', $e->getMessage());
+            self::assertSame('app.key (/p): the stored closure could not be restored: cannot wake up', $e->getMessage());
             self::assertInstanceOf(\RuntimeException::class, $e->getPrevious());
         }
     }
@@ -197,7 +228,7 @@ final class TransformTest extends PHPUnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(
-            "/my/path: an object's greet(...) cannot be stored for config:cache;"
+            '/my/path: ' . Wakeup::class . '->greet(...) cannot be stored for config:cache;'
             . " use a static method as [Class::class, 'method']",
         );
 
