@@ -342,4 +342,34 @@ final class ConfigOverrideTest extends TestCase
         $this->expectException(NotFoundException::class);
         config('app.gone');
     }
+
+    public function testAnAncestorReadGetsTheShapedDescendant(): void
+    {
+        $this->useModule(['/app/hosts' => 'sx, y']);
+        $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', 'a', [Csv::class, 'split']));
+
+        ConfigOverride::install($this->application());
+
+        $app = config('app');
+        self::assertIsArray($app);
+        self::assertSame(['x', 'y'], $app['hosts']);
+    }
+
+    public function testAFailingTransformOfTheFallbackNamesTheKeyAndPathAndCanBeRetried(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', null, static fn (string $value): array => [$value]));
+        $before = $this->config();
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            try {
+                ConfigOverride::install($this->application());
+                self::fail('a transform that cannot take the fallback is a programming error');
+            } catch (\RuntimeException $e) {
+                self::assertStringStartsWith('OnlineConf transform of app.hosts (/app/hosts) failed: ', $e->getMessage());
+                self::assertInstanceOf(\TypeError::class, $e->getPrevious());
+            }
+        }
+        self::assertSame($before, $this->config(), 'a failed install is not remembered as done');
+    }
 }

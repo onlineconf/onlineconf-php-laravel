@@ -10,6 +10,8 @@ use Laravel\SerializableClosure\SerializableClosure;
 use Laravel\SerializableClosure\UnsignedSerializableClosure;
 use LogicException;
 use ReflectionFunction;
+use RuntimeException;
+use Throwable;
 
 /**
  * The post-processing callable of a marker in a form var_export() can write, so markers and the derived map
@@ -83,6 +85,24 @@ final class Transform
         }
 
         return $encoded;
+    }
+
+    /**
+     * Runs the transform. Whatever it throws is a programming error in config/*.php, not a missing value, so it
+     * propagates — named after the config key and the path, since the stack trace points into this package.
+     *
+     * @throws RuntimeException wrapping what the transform threw
+     */
+    public static function apply(callable $transform, mixed $value, string $key, string $path): mixed
+    {
+        try {
+            return $transform($value);
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                sprintf('OnlineConf transform of %s (%s) failed: %s', $key, $path, $e->getMessage()),
+                previous: $e,
+            );
+        }
     }
 
     /**

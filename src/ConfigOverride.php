@@ -46,7 +46,8 @@ final class ConfigOverride
      *
      * A configuration from config:cache has no markers left: its map is the one the caching application
      * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
-     * the same configuration changes nothing — neither the repository nor the registry of immediate reads.
+     * the same configuration changes nothing — neither the repository nor the registry of immediate reads —
+     * unless the first one failed: a transform that throws on its fallback aborts the install.
      */
     public static function install(ApplicationContract $app): void
     {
@@ -67,14 +68,20 @@ final class ConfigOverride
         if ($config instanceof OverridingRepository || isset($installed[$config])) {
             return;
         }
-        $installed[$config] = true;
         $items = $config->all();
+        $transforms = [];
         // No markers left means the configuration came from config:cache written by an application that had
         // already resolved them: the map it derived is in the cached array.
-        $map = self::derive($items);
+        $map = self::derive($items, $transforms);
         if ($map === []) {
             $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
+            foreach ($map as $key => $entry) {
+                if ($entry['transform'] !== null) {
+                    $transforms[$key] = Transform::decode($entry['transform'], $key, $entry['path']);
+                }
+            }
         }
+        $installed[$config] = true;
         Arr::set($items, 'onlineconf.map', $map);
         EagerReads::trim();
 
@@ -92,17 +99,20 @@ final class ConfigOverride
             $map,
             static fn (): Module => $manager->module(),
             ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
+            $transforms,
         ));
     }
 
     /**
-     * Replaces every marker in the configuration with its fallback and returns the map the markers declare.
+     * Replaces every marker in the configuration with its fallback and returns the map the markers declare;
+     * the transforms, decoded once, are collected for the repository.
      *
-     * @param array<mixed> $items
+     * @param array<mixed>            $items
+     * @param array<string, callable> $transforms
      *
      * @return array<string, Entry>
      */
-    private static function derive(array &$items, string $prefix = ''): array
+    private static function derive(array &$items, array &$transforms, string $prefix = ''): array
     {
         $map = [];
         foreach ($items as $key => $value) {
@@ -115,17 +125,21 @@ final class ConfigOverride
                     'fallback' => $value->fallback,
                     'transform' => $value->transform,
                 ];
-                // The configuration gets the shaped fallback, so config() without a module and config:cache
-                // already have the final shape; a required marker has no fallback to shape.
-                $items[$key] = $value->transform === null || $value->required
-                    ? $value->fallback
-                    : Transform::decode($value->transform, $dotted, $value->path)($value->fallback);
+                $items[$key] = $value->fallback;
+                if ($value->transform !== null) {
+                    $transforms[$dotted] = Transform::decode($value->transform, $dotted, $value->path);
+                    // The configuration gets the shaped fallback, so config() without a module and config:cache
+                    // already have the final shape; a required marker has no fallback to shape.
+                    if (!$value->required) {
+                        $items[$key] = Transform::apply($transforms[$dotted], $value->fallback, $dotted, $value->path);
+                    }
+                }
 
                 continue;
             }
             if (is_array($value)) {
                 $nested = $value;
-                $map += self::derive($nested, $dotted);
+                $map += self::derive($nested, $transforms, $dotted);
                 $items[$key] = $nested;
             }
         }

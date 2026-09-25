@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Config;
 
+use ArrayObject;
 use Closure;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
@@ -36,11 +37,11 @@ final class OverridingRepository extends Repository
     /** @var array<string, Entry> config key → node */
     private array $map;
 
-    /** @var array<string, callable> config key → its transform, unserialized once */
-    private array $transforms = [];
-
-    /** @var array<string, array{Module, string, mixed}> config key → module and version the value was shaped for, and the value */
-    private array $shaped = [];
+    /**
+     * @var ArrayObject<string, array{Module, string, mixed}> config key → the module and version a value was
+     *      shaped for, and the value; an object, so the clones Octane makes per request share it
+     */
+    private readonly ArrayObject $shaped;
 
     /** @var array<string, list<string>> config key → mapped keys below it ("services" → ["services.mailer.host", …]) */
     private array $below = [];
@@ -49,22 +50,20 @@ final class OverridingRepository extends Repository
      * @param array<mixed>                                                    $items         the loaded configuration
      * @param array<string, Entry>                                          $map           config key → node
      * @param Closure(): Module                                               $moduleFactory returns the module to read from; called on every mapped read
+     * @param array<string, callable>                                         $transforms    config key → its transform, decoded by the installer
      */
     public function __construct(
         array $items,
         array $map,
         private readonly Closure $moduleFactory,
         private readonly LoggerInterface $logger,
+        private readonly array $transforms = [],
     ) {
         parent::__construct($items);
         $this->map = $map;
-        // Decoded here, while the configuration is being installed and before any provider has run: Laravel
-        // sets a closure signer once the encryption provider registers, and would then reject these.
-        foreach ($map as $key => $entry) {
-            if ($entry['transform'] !== null) {
-                $this->transforms[$key] = Transform::decode($entry['transform'], $key, $entry['path']);
-            }
-        }
+        /** @var ArrayObject<string, array{Module, string, mixed}> $shaped */
+        $shaped = new ArrayObject();
+        $this->shaped = $shaped;
         $this->index();
     }
 
@@ -229,7 +228,7 @@ final class OverridingRepository extends Repository
         if ($shaped !== null && $shaped[0] === $module && $shaped[1] === $version) {
             return $shaped[2];
         }
-        $result = $transform($value);
+        $result = Transform::apply($transform, $value, $key, $this->map[$key]['path']);
         $this->shaped[$key] = [$module, $version, $result];
 
         return $result;
