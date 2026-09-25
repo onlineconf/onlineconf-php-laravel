@@ -32,6 +32,28 @@ final class MapEntryTest extends PHPUnitTestCase
         );
     }
 
+    public function testAnEntryWrittenBy12TakesItsFallbackFromTheConfiguration(): void
+    {
+        $items = ['app' => ['name' => 'From config', 'secret' => null]];
+
+        self::assertSame(
+            [
+                'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'From config', 'transform' => null],
+                'app.secret' => ['path' => '/app/secret', 'type' => Ref::TYPE_STRING, 'required' => true, 'fallback' => null, 'transform' => null],
+                'app.shaped' => ['path' => '/app/shaped', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => null, 'transform' => null],
+            ],
+            MapEntry::normalize(
+                [
+                    'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => false],
+                    'app.secret' => ['path' => '/app/secret', 'type' => Ref::TYPE_STRING, 'required' => true],
+                    'app.shaped' => ['path' => '/app/shaped', 'type' => Ref::TYPE_STRING, 'fallback' => null],
+                ],
+                $items,
+            ),
+            'a 1.2 cache has no fallback in its entries; an explicit null stays null',
+        );
+    }
+
     public function testAnythingThatIsNotAnEntryIsDropped(): void
     {
         self::assertSame([], MapEntry::normalize([

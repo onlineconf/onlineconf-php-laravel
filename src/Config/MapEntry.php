@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Config;
 
+use Illuminate\Support\Arr;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Transform;
 
@@ -19,9 +20,12 @@ use Onlineconf\Laravel\Transform;
 final class MapEntry
 {
     /**
+     * @param array<mixed> $items the loaded configuration: a map written by 1.2 carries no fallback, so it is
+     *                            taken from the configured value (which 1.2 never transformed)
+     *
      * @return array<string, Entry>
      */
-    public static function normalize(mixed $map): array
+    public static function normalize(mixed $map, array $items = []): array
     {
         $entries = [];
         foreach (is_array($map) ? $map : [] as $key => $entry) {
@@ -41,7 +45,7 @@ final class MapEntry
                 'path' => $path,
                 'type' => $type,
                 'required' => (bool) ($entry['required'] ?? false),
-                'fallback' => $entry['fallback'] ?? null,
+                'fallback' => array_key_exists('fallback', $entry) ? $entry['fallback'] : Arr::get($items, $key),
                 'transform' => $transform,
             ];
         }

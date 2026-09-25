@@ -28,7 +28,7 @@ final class MapCommand extends Command
 
     public function handle(Repository $config): int
     {
-        $map = MapEntry::normalize($config->get('onlineconf.map'));
+        $map = MapEntry::normalize($config->get('onlineconf.map'), $config->all());
         $reads = EagerReads::all();
 
         if ((bool) $this->option('json')) {

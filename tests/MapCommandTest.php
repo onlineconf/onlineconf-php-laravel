@@ -123,4 +123,19 @@ final class MapCommandTest extends TestCase
             'the fallback as written, not as shaped',
         );
     }
+
+    public function testAMapWrittenBy12ShowsTheConfiguredFallback(): void
+    {
+        $this->config()->set('app.name', 'From config');
+        $this->config()->set('onlineconf.map', ['app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false]]);
+
+        [, $json] = $this->runCommand(['--json' => true]);
+
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        self::assertSame(
+            ['app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false, 'fallback' => 'From config', 'transform' => false]],
+            $decoded['map'],
+        );
+    }
 }

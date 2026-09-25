@@ -15,6 +15,12 @@
   path when the marker is built. Closures survive `config:cache`, signed by Laravel or not.
 - `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
 
+### Upgrading and rolling back
+
+- A configuration cache written by 1.2 keeps working: its map entries carry no fallback, which is then taken
+  from the cached configuration.
+- Rolling back to 1.2 needs `php artisan config:cache` again: a 1.3 cache holds the transformed fallbacks.
+
 ## 1.2.0 — 2026-09-25
 
 The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application reads are declared in

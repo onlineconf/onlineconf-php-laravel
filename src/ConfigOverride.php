@@ -74,7 +74,7 @@ final class ConfigOverride
         // already resolved them: the map it derived is in the cached array.
         $map = self::derive($items, $transforms);
         if ($map === []) {
-            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
+            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'), $items);
             foreach ($map as $key => $entry) {
                 if ($entry['transform'] !== null) {
                     $transforms[$key] = Transform::decode($entry['transform'], $key, $entry['path']);
