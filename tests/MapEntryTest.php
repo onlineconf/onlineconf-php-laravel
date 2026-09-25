@@ -18,10 +18,18 @@ final class MapEntryTest extends PHPUnitTestCase
         ]);
 
         self::assertSame([
-            'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => true],
-            'app.port' => ['path' => '/app/port', 'type' => Ref::TYPE_INT, 'required' => false],
+            'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => true, 'fallback' => null, 'transform' => null],
+            'app.port' => ['path' => '/app/port', 'type' => Ref::TYPE_INT, 'required' => false, 'fallback' => null, 'transform' => null],
         ], $entries);
         self::assertSame($entries, MapEntry::normalize($entries), 'reading them back changes nothing');
+    }
+
+    public function testTheRawFallbackAndTheStoredTransformAreKept(): void
+    {
+        self::assertSame(
+            ['hosts' => ['path' => '/hosts', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'a,b', 'transform' => 'trim']],
+            MapEntry::normalize(['hosts' => ['path' => '/hosts', 'type' => Ref::TYPE_STRING, 'fallback' => 'a,b', 'transform' => 'trim']]),
+        );
     }
 
     public function testAnythingThatIsNotAnEntryIsDropped(): void
@@ -35,6 +43,7 @@ final class MapEntryTest extends PHPUnitTestCase
             'd' => ['path' => '/d'],
             'e' => ['path' => '/e', 'type' => 'nonsense'],
             'f' => ['path' => '/f', 'type' => 5],
+            'g' => ['path' => '/g', 'type' => 'string', 'transform' => 5],
         ]));
         self::assertSame([], MapEntry::normalize('not a map'));
         self::assertSame([], MapEntry::normalize(null));

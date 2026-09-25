@@ -9,6 +9,7 @@ use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\Csv;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 final class MapCommandTest extends TestCase
@@ -77,9 +78,9 @@ final class MapCommandTest extends TestCase
         self::assertSame(0, $code);
         self::assertIsArray($decoded);
         self::assertSame([
-            'app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false, 'fallback' => 'From config'],
-            'app.secret' => ['path' => '/app/secret', 'type' => 'string', 'required' => true, 'fallback' => null],
-            'services.queue.workers' => ['path' => '/app/workers', 'type' => 'int', 'required' => false, 'fallback' => 2],
+            'app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false, 'fallback' => 'From config', 'transform' => false],
+            'app.secret' => ['path' => '/app/secret', 'type' => 'string', 'required' => true, 'fallback' => null, 'transform' => false],
+            'services.queue.workers' => ['path' => '/app/workers', 'type' => 'int', 'required' => false, 'fallback' => 2, 'transform' => false],
         ], $decoded['map']);
         $eager = $decoded['eager'];
         self::assertIsArray($eager);
@@ -100,5 +101,26 @@ final class MapCommandTest extends TestCase
 
         self::assertSame(0, $code);
         self::assertSame(['map' => [], 'eager' => []], json_decode($output, true, 512, JSON_THROW_ON_ERROR));
+    }
+
+    public function testATransformedMarkerShowsItsRawFallback(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', 'a, b', [Csv::class, 'split']));
+        ConfigOverride::install($this->application());
+
+        [$code, $table] = $this->runCommand();
+        [, $json] = $this->runCommand(['--json' => true]);
+
+        self::assertSame(0, $code);
+        self::assertMatchesRegularExpression('/Transform/', $table);
+        self::assertMatchesRegularExpression('/app\.hosts\s*\|\s*\/app\/hosts\s*\|\s*string\s*\|\s*no\s*\|\s*yes\s*\|\s*a, b\s*\|/', $table);
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        self::assertSame(
+            ['app.hosts' => ['path' => '/app/hosts', 'type' => 'string', 'required' => false, 'fallback' => 'a, b', 'transform' => true]],
+            $decoded['map'],
+            'the fallback as written, not as shaped',
+        );
     }
 }

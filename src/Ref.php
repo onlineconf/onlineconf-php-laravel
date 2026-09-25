@@ -14,6 +14,12 @@ use LogicException;
  * {@see ConfigOverride::install()} takes every marker out of the loaded configuration, leaves the fallback
  * in its place and adds the node to the map the config() override reads from. The type is what the marker
  * declares, never guessed from the fallback; a requireRef*() marker means the node must exist.
+ *
+ * A transform post-processes the value: the node value when OnlineConf has it, the fallback otherwise, so the
+ * key has one shape either way. It is kept in its stored form ({@see Transform}), so a marker can go through
+ * var_export() like any other configuration value.
+ *
+ * @phpstan-import-type Encoded from Transform
  */
 final class Ref
 {
@@ -46,12 +52,14 @@ final class Ref
      * @param mixed  $fallback the value config() returns when OnlineConf has no such node
      * @param bool   $required from requireRef*(): the node must exist, and the client's exception is thrown
      *                        instead of a fallback
+     * @param Encoded|null $transform the post-processing callable in its stored form, see {@see Transform::encode()}
      */
     public function __construct(
         public readonly string $path,
         public readonly string $type,
         public readonly mixed $fallback = null,
         public readonly bool $required = false,
+        public readonly string|array|null $transform = null,
     ) {
     }
 
@@ -79,12 +87,14 @@ final class Ref
     {
         $path = $state['path'] ?? '';
         $type = $state['type'] ?? self::TYPE_RAW;
+        $transform = $state['transform'] ?? null;
 
         return new self(
             is_string($path) ? $path : '',
             is_string($type) ? $type : self::TYPE_RAW,
             $state['fallback'] ?? null,
             (bool) ($state['required'] ?? false),
+            Transform::isEncoded($transform) ? $transform : null,
         );
     }
 }

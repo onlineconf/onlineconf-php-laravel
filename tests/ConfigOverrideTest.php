@@ -18,6 +18,7 @@ use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\Csv;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -99,9 +100,9 @@ final class ConfigOverrideTest extends TestCase
         self::assertSame('sync', config('services.queue.driver'));
         self::assertSame(
             [
-                'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => false],
-                'services.queue.workers' => ['path' => '/app/workers', 'type' => Ref::TYPE_INT, 'required' => false],
-                'services.queue.ttl' => ['path' => '/app/ttl', 'type' => Ref::TYPE_DURATION, 'required' => false],
+                'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'From config', 'transform' => null],
+                'services.queue.workers' => ['path' => '/app/workers', 'type' => Ref::TYPE_INT, 'required' => false, 'fallback' => 2, 'transform' => null],
+                'services.queue.ttl' => ['path' => '/app/ttl', 'type' => Ref::TYPE_DURATION, 'required' => false, 'fallback' => 5.0, 'transform' => null],
             ],
             config('onlineconf.map'),
             'the map is derived from the markers and written back for the tooling',
@@ -127,7 +128,10 @@ final class ConfigOverrideTest extends TestCase
         self::assertSame([['host' => 'from OnlineConf', 'port' => 5432]], config('servers'), 'the list keeps its shape');
         $map = config('onlineconf.map');
         self::assertIsArray($map);
-        self::assertSame(['path' => '/servers/0/host', 'type' => Ref::TYPE_STRING, 'required' => false], $map['servers.0.host'] ?? null);
+        self::assertSame(
+            ['path' => '/servers/0/host', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'from config', 'transform' => null],
+            $map['servers.0.host'] ?? null,
+        );
     }
 
     public function testRequiredMarker(): void
@@ -282,5 +286,60 @@ final class ConfigOverrideTest extends TestCase
             Facade::setFacadeApplication($this->application());
             Container::setInstance($this->application());
         }
+    }
+
+    public function testATransformShapesTheFallbackToo(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', 'a, b', [Csv::class, 'split']));
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame(['a', 'b'], config('app.hosts'), 'no module: the key has its final shape anyway');
+        $app = $this->config()->all()['app'];
+        self::assertIsArray($app);
+        self::assertSame(['a', 'b'], $app['hosts'], 'config:cache writes the shaped fallback');
+        $map = config('onlineconf.map');
+        self::assertIsArray($map);
+        self::assertSame(
+            ['path' => '/app/hosts', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'a, b', 'transform' => [Csv::class, 'split']],
+            $map['app.hosts'] ?? null,
+            'the map keeps the raw fallback and the stored transform',
+        );
+    }
+
+    public function testATransformShapesTheNodeValueAndFollowsAReplacedModuleFile(): void
+    {
+        $this->useModule(['/app/hosts' => 'sx, y']);
+        $this->config()->set('onlineconf.check_interval', 0);
+        $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', null, [Csv::class, 'countedSplit']));
+        ConfigOverride::install($this->application());
+        Csv::$calls = 0;
+
+        self::assertSame(['x', 'y'], config('app.hosts'));
+        self::assertSame(['x', 'y'], config('app.hosts'));
+        self::assertSame(1, Csv::$calls, 'once per module version, not once per config() call');
+
+        $this->writeModule(['/app/hosts' => 'sz']);
+
+        self::assertSame(['z'], config('app.hosts'));
+        self::assertSame(2, Csv::$calls, 'a replaced module file is a new version');
+    }
+
+    public function testARequiredMarkerTakesATransformToo(): void
+    {
+        $this->useModule(['/app/port' => 's8080']);
+        $this->config()->set('app.port', Onlineconf::requireRefInt('/app/port', static fn (int $port): string => 'port ' . $port));
+        $this->config()->set('app.gone', Onlineconf::requireRefInt('/app/gone', static fn (int $port): string => 'port ' . $port));
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame('port 8080', config('app.port'));
+        $app = $this->config()->all()['app'];
+        self::assertIsArray($app);
+        self::assertNull($app['gone'], 'a required marker has no fallback to shape');
+
+        $this->expectException(NotFoundException::class);
+        config('app.gone');
     }
 }

@@ -13,6 +13,7 @@ use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Exception\ParseException;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Transform;
 use Onlineconf\Module;
 use Psr\Log\LoggerInterface;
 
@@ -24,18 +25,29 @@ use Psr\Log\LoggerInterface;
  * Each node is read with the type its marker declares ({@see Ref::TYPES}); the fallback is returned as it is
  * and is never replaced by an empty value of that type. A required marker must find its node, in a module that
  * opens: the client's exception reaches the caller instead of a fallback.
+ *
+ * A marker's transform is applied to the node value and memoised per config key until the module version
+ * changes; the fallback in the configuration is already shaped ({@see \Onlineconf\Laravel\ConfigOverride}).
+ *
+ * @phpstan-import-type Entry from MapEntry
  */
 final class OverridingRepository extends Repository
 {
-    /** @var array<string, array{path: string, type: string, required: bool}> config key → node */
+    /** @var array<string, Entry> config key → node */
     private array $map;
+
+    /** @var array<string, callable> config key → its transform, unserialized once */
+    private array $transforms = [];
+
+    /** @var array<string, array{Module, string, mixed}> config key → module and version the value was shaped for, and the value */
+    private array $shaped = [];
 
     /** @var array<string, list<string>> config key → mapped keys below it ("services" → ["services.mailer.host", …]) */
     private array $below = [];
 
     /**
      * @param array<mixed>                                                    $items         the loaded configuration
-     * @param array<string, array{path: string, type: string, required: bool}> $map          config key → node
+     * @param array<string, Entry>                                          $map           config key → node
      * @param Closure(): Module                                               $moduleFactory returns the module to read from; called on every mapped read
      */
     public function __construct(
@@ -46,6 +58,13 @@ final class OverridingRepository extends Repository
     ) {
         parent::__construct($items);
         $this->map = $map;
+        // Decoded here, while the configuration is being installed and before any provider has run: Laravel
+        // sets a closure signer once the encryption provider registers, and would then reject these.
+        foreach ($map as $key => $entry) {
+            if ($entry['transform'] !== null) {
+                $this->transforms[$key] = Transform::decode($entry['transform']);
+            }
+        }
         $this->index();
     }
 
@@ -60,12 +79,12 @@ final class OverridingRepository extends Repository
 
         $value = parent::get($key, $default);
         if (isset($this->map[$key])) {
-            return $this->override($this->map[$key], $value);
+            return $this->override($key, $this->map[$key], $value);
         }
         if (isset($this->below[$key]) && is_array($value)) {
             foreach ($this->below[$key] as $mapped) {
                 $sub = substr($mapped, strlen($key) + 1);
-                $override = $this->override($this->map[$mapped], Arr::get($value, $sub));
+                $override = $this->override($mapped, $this->map[$mapped], Arr::get($value, $sub));
                 // No phantom keys: a descendant that is neither in the configuration nor in OnlineConf stays absent.
                 if ($override !== null || Arr::has($value, $sub)) {
                     Arr::set($value, $sub, $override);
@@ -153,19 +172,21 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The node read with the type its marker declares. A node the tree does not have is the normal state —
-     * the value from config/*.php is the default — so it is a silent fallback; a value that does not parse
-     * is a warning in the client's own wording, and also a fallback. A required marker gets neither: its
-     * exceptions reach the caller, OpenException included.
+     * The node read with the type its marker declares, through its transform. A node the tree does not have
+     * is the normal state — the value from config/*.php is the default — so it is a silent fallback; a value
+     * that does not parse is a warning in the client's own wording, and also a fallback. A required marker
+     * gets neither: its exceptions reach the caller, OpenException included.
      *
-     * @param array{path: string, type: string, required: bool} $entry
+     * @param Entry $entry
      */
-    private function override(array $entry, mixed $fallback): mixed
+    private function override(string $key, array $entry, mixed $fallback): mixed
     {
         $path = $entry['path'];
         if ($entry['required']) {
             // Without a module a required node cannot be satisfied either: the OpenException propagates.
-            return self::read(($this->moduleFactory)(), $entry['type'], $path);
+            $module = ($this->moduleFactory)();
+
+            return $this->shape($key, $module, self::read($module, $entry['type'], $path));
         }
         $module = $this->module();
         if ($module === null) {
@@ -173,7 +194,7 @@ final class OverridingRepository extends Repository
         }
 
         try {
-            return self::read($module, $entry['type'], $path);
+            $value = self::read($module, $entry['type'], $path);
         } catch (NotFoundException) {
             return $fallback;
         } catch (FormatException|ParseException $e) {
@@ -189,6 +210,29 @@ final class OverridingRepository extends Repository
 
             return $fallback;
         }
+
+        return $this->shape($key, $module, $value);
+    }
+
+    /**
+     * The node value through the marker's transform, run once per module and version: the version changes
+     * whenever the module reloads, which is the only time the value can change.
+     */
+    private function shape(string $key, Module $module, mixed $value): mixed
+    {
+        $transform = $this->transforms[$key] ?? null;
+        if ($transform === null) {
+            return $value;
+        }
+        $version = $module->version();
+        $shaped = $this->shaped[$key] ?? null;
+        if ($shaped !== null && $shaped[0] === $module && $shaped[1] === $version) {
+            return $shaped[2];
+        }
+        $result = $transform($value);
+        $this->shaped[$key] = [$module, $version, $result];
+
+        return $result;
     }
 
     /**

@@ -88,7 +88,7 @@ final class ConfigCacheTest extends TestCase
             $map = $config->get('onlineconf.map');
             self::assertIsArray($map);
             self::assertSame(
-                ['path' => '/probe/lazy', 'type' => 'string', 'required' => false],
+                ['path' => '/probe/lazy', 'type' => 'string', 'required' => false, 'fallback' => 'from config', 'transform' => null],
                 $map['onlineconf_probe.lazy'] ?? null,
             );
             self::assertSame([], EagerReads::all(), 'config files did not run, so onlineconf:map has no immediate reads');
@@ -149,7 +149,7 @@ final class ConfigCacheTest extends TestCase
             $listed = json_decode($output->fetch(), true, 512, JSON_THROW_ON_ERROR);
             self::assertIsArray($listed);
             self::assertSame(
-                ['app.name' => ['path' => '/probe/lazy', 'type' => 'string', 'required' => false, 'fallback' => 'from config']],
+                ['app.name' => ['path' => '/probe/lazy', 'type' => 'string', 'required' => false, 'fallback' => 'from config', 'transform' => false]],
                 $listed['map'],
             );
         } finally {

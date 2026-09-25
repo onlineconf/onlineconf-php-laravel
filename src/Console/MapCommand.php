@@ -6,7 +6,6 @@ namespace Onlineconf\Laravel\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository;
-use Illuminate\Support\Arr;
 use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\EagerRead;
 use Onlineconf\Laravel\EagerReads;
@@ -14,7 +13,10 @@ use Onlineconf\Laravel\EagerReads;
 /**
  * Lists every OnlineConf node this application's configuration refers to: the map derived from the Ref
  * markers in config/*.php and the nodes that were read while the configuration was loading. The input for
- * dumping values and for checking them against the tree.
+ * dumping values and for checking them against the tree. Fallbacks are shown as written in config/*.php,
+ * before any transform.
+ *
+ * @phpstan-import-type Entry from MapEntry
  */
 final class MapCommand extends Command
 {
@@ -27,11 +29,10 @@ final class MapCommand extends Command
     public function handle(Repository $config): int
     {
         $map = MapEntry::normalize($config->get('onlineconf.map'));
-        $fallbacks = $config->all();
         $reads = EagerReads::all();
 
         if ((bool) $this->option('json')) {
-            $this->output->writeln($this->json($map, $fallbacks, $reads));
+            $this->output->writeln($this->json($map, $reads));
 
             return self::SUCCESS;
         }
@@ -48,10 +49,11 @@ final class MapCommand extends Command
                 $entry['path'],
                 $entry['type'],
                 $entry['required'] ? 'yes' : 'no',
-                self::printable(Arr::get($fallbacks, $key)),
+                $entry['transform'] !== null ? 'yes' : 'no',
+                self::printable($entry['fallback']),
             ];
         }
-        $this->table(['Config key', 'Path', 'Type', 'Required', 'Fallback'], $rows);
+        $this->table(['Config key', 'Path', 'Type', 'Required', 'Transform', 'Fallback'], $rows);
 
         if ($reads !== []) {
             $this->output->writeln('Read while the configuration was loading:');
@@ -65,17 +67,22 @@ final class MapCommand extends Command
     }
 
     /**
-     * @param array<string, array{path: string, type: string, required: bool}> $map
-     * @param array<mixed>                                                          $fallbacks
-     * @param list<EagerRead>                                                       $reads
+     * @param array<string, Entry> $map
+     * @param list<EagerRead>      $reads
      *
      * @throws \JsonException
      */
-    private function json(array $map, array $fallbacks, array $reads): string
+    private function json(array $map, array $reads): string
     {
         $nodes = [];
         foreach ($map as $key => $entry) {
-            $nodes[$key] = $entry + ['fallback' => Arr::get($fallbacks, $key)];
+            $nodes[$key] = [
+                'path' => $entry['path'],
+                'type' => $entry['type'],
+                'required' => $entry['required'],
+                'fallback' => $entry['fallback'],
+                'transform' => $entry['transform'] !== null,
+            ];
         }
 
         return json_encode(

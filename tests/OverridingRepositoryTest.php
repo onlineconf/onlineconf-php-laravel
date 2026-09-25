@@ -11,6 +11,8 @@ use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\Csv;
+use Onlineconf\Laravel\Transform;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -348,5 +350,42 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
 
         $this->expectException(OpenException::class);
         $repository->get('node');
+    }
+
+    public function testATransformRunsOncePerModuleVersion(): void
+    {
+        Csv::$calls = 0;
+        $source = ArraySource::fromValues(['/node' => 'a,b']);
+        $module = new Module($source, $this->logger, 0);
+        $repository = new OverridingRepository(
+            ['node' => ['shaped', 'fallback']],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'transform' => [Csv::class, 'countedSplit']]]),
+            static fn (): Module => $module,
+            $this->logger,
+        );
+
+        self::assertSame(['a', 'b'], $repository->get('node'));
+        self::assertSame(['a', 'b'], $repository->get('node'));
+        self::assertSame(1, Csv::$calls);
+
+        $source->replaceValues(['/node' => 'c']);
+
+        self::assertSame(['c'], $repository->get('node'));
+        self::assertSame(2, Csv::$calls);
+
+        $source->replaceValues(['/node' => ['not a string']]);
+
+        self::assertSame(['shaped', 'fallback'], $repository->get('node'), 'the fallback is already shaped: not shaped again');
+        $source->replaceValues([]);
+        self::assertSame(['shaped', 'fallback'], $repository->get('node'));
+        self::assertSame(2, Csv::$calls);
+
+        $closure = new OverridingRepository(
+            ['node' => null],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_RAW, 'transform' => Transform::encode('/node', static fn (mixed $value): string => 'got ' . json_encode($value))]]),
+            static fn (): Module => new Module(ArraySource::fromValues(['/node' => 'x']), null, 0),
+            $this->logger,
+        );
+        self::assertSame('got "x"', $closure->get('node'), 'a stored closure is unserialized once and applied');
     }
 }

@@ -20,6 +20,8 @@ use WeakMap;
  *     \Onlineconf\Laravel\ConfigOverride::register($app);
  *
  * The map is derived from the {@see Ref} markers in config/*.php; there is no map to write by hand.
+ *
+ * @phpstan-import-type Entry from MapEntry
  */
 final class ConfigOverride
 {
@@ -98,7 +100,7 @@ final class ConfigOverride
      *
      * @param array<mixed> $items
      *
-     * @return array<string, array{path: string, type: string, required: bool}>
+     * @return array<string, Entry>
      */
     private static function derive(array &$items, string $prefix = ''): array
     {
@@ -106,8 +108,18 @@ final class ConfigOverride
         foreach ($items as $key => $value) {
             $dotted = $prefix === '' ? (string) $key : $prefix . '.' . $key;
             if ($value instanceof Ref) {
-                $map[$dotted] = ['path' => $value->path, 'type' => $value->type, 'required' => $value->required];
-                $items[$key] = $value->fallback;
+                $map[$dotted] = [
+                    'path' => $value->path,
+                    'type' => $value->type,
+                    'required' => $value->required,
+                    'fallback' => $value->fallback,
+                    'transform' => $value->transform,
+                ];
+                // The configuration gets the shaped fallback, so config() without a module and config:cache
+                // already have the final shape; a required marker has no fallback to shape.
+                $items[$key] = $value->transform === null || $value->required
+                    ? $value->fallback
+                    : Transform::decode($value->transform)($value->fallback);
 
                 continue;
             }
