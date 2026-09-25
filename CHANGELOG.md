@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0 — 2026-09-25
+
+### Added
+
+- Post-processing for lazy markers: `getRef*($path, $fallback, $transform)` and `requireRef*($path, $transform)`
+  take an optional callable. The declared type stays the type of the node; the transform gets the typed value —
+  the node's, or the fallback — and its result is what `config()` returns. `ConfigOverride::install()` writes the
+  transformed fallback into the configuration, so `config()` without a module, `config()->all()` and
+  `config:cache` have the final shape; the derived map keeps the raw fallback and the stored transform.
+- The transformed node value is memoised per config key until the module version changes.
+- A transform may be a `Closure` (stored with `laravel/serializable-closure`, now a direct dependency), a
+  function name or a `[class, static method]` pair; anything else is an `InvalidArgumentException` naming the
+  path when the marker is built. Closures survive `config:cache`, signed by Laravel or not.
+- `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
+
 ## 1.2.0 — 2026-09-25
 
 The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application reads are declared in

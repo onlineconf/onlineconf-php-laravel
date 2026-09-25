@@ -246,7 +246,8 @@ A node is named where the value lives, in one of two ways, and one rule says whi
   reads OnlineConf. Use it when the value is used **as is**.
 - **`get*()` / `require*()` — an immediate read.** The facade reads OnlineConf right there, while
   `config/*.php` is being loaded, and the plain value lands in the configuration. Use it when the config file
-  **transforms** the value: a cast, `explode()`, string concatenation, a condition.
+  **transforms** the value — a cast, `explode()`, string concatenation, a condition — and the value may be
+  fixed for the life of the process; otherwise give the lazy marker a transform (see «Post-processing»).
 
 The names mirror each other exactly: `getString()` reads a string now, `getRefString()` refers to it for
 later; `requireString()` reads a node that must exist now, `requireRefString()` refers to one for later. The
@@ -286,8 +287,9 @@ The type is what the method declares; it is never guessed from the fallback. `ge
 (bool) env('APP_DEBUG'))` — the cast keeps the fallback the type its node is.
 
 **A marker is not a value.** `(bool) Onlineconf::getRefBool(...)` is `true` for every marker and `(int)` is `1`,
-because the cast sees an object, not the node — which is exactly why a cast in the config file means `get*`.
-Using a marker as a string throws a `LogicException` naming the path instead of failing quietly.
+because the cast sees an object, not the node — which is exactly why a cast in the config file means `get*`,
+or a transform on the marker. Using a marker as a string throws a `LogicException` naming the path instead of
+failing quietly.
 
 **Markers do not belong in `config/onlineconf.php`, `app.env` or `app.timezone`.** The package's own settings
 (`dir`, `module`, `check_interval`, `log_channel`) and the keys `LoadConfiguration` itself consumes
@@ -309,6 +311,40 @@ missing required node throws there as well, not only on `config('database.connec
 When the node exists but does not parse as the declared type, the value from `config/*.php` is returned as it
 is — including `null` — and the client's warning is logged. The fallback is never replaced by an empty value
 of the declared type.
+
+### Post-processing
+
+Every lazy marker takes an optional transform — the last argument: `getRef*($path, $fallback, $transform)`,
+`requireRef*($path, $transform)` — for a value the config file would otherwise have to change:
+
+```php
+// config/services.php: a comma-separated list, kept lazy
+'hosts' => Onlineconf::getRefString(
+    '/my/service/hosts',
+    env('SERVICE_HOSTS'),
+    fn (?string $hosts): array => array_filter(array_map('trim', explode(',', (string) $hosts))),
+),
+```
+
+- **The declared type is the type of the node** — how the client parses the tree's value. The transform gets
+  that typed value and whatever it returns is what `config()` returns.
+- **It is applied to the fallback as well**, so the key has the same shape with and without a node: the
+  fallback is written raw (here the `env()` string) and `ConfigOverride::install()` stores the transformed
+  fallback in the configuration — `config()` on a machine without OnlineConf, `config()->all()` and
+  `config:cache` all see the final shape. A `requireRef*()` marker has no fallback, so nothing is shaped there.
+- **It runs once per module version**, not on every `config()` call: the result is memoised per config key
+  and computed again when the module reloads. Keep it a pure function of its argument.
+- **It must be storable**, because `config:cache` writes the configuration with `var_export()`: a `Closure`
+  (stored with `laravel/serializable-closure`), a function name (`'strtolower'`) or a static method
+  (`[Csv::class, 'split']`). An invokable object or an object method is rejected with an
+  `InvalidArgumentException` naming the path, when the marker is built. A closure's `use` variables are
+  captured by value when the marker is built; a by-reference `use` is not shared after the cache.
+- The package signs nothing itself. A closure is serialized and unserialized while the configuration loads,
+  before any service provider — Laravel's encryption provider installs its closure signer only later — and the
+  configuration cache is a local file of the application. A cache written by `php artisan config:cache`, where
+  Laravel's signer is already set, is read back unchanged.
+- The immediate `get*()` / `require*()` take no transform: the config file can wrap them directly.
+- `onlineconf:map` marks transformed keys in its `Transform` column and shows the fallback as written.
 
 ### What immediate reads cost
 
