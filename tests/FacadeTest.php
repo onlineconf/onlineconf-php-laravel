@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Module;
 
@@ -76,5 +77,33 @@ final class FacadeTest extends TestCase
 
         self::assertSame('fake', Onlineconf::module('other')->getString('/app/name', ''));
         self::assertSame('real', Onlineconf::getString('/app/name', ''));
+    }
+
+    public function testGettersReturnTheirDefaultsWhenThereIsNoModule(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        self::assertSame('d', Onlineconf::getString('/x', 'd'));
+        self::assertSame(['a'], Onlineconf::getStrings('/x', ['a']));
+        self::assertSame(['k' => 1], Onlineconf::getArray('/x', ['k' => 1]));
+        self::assertSame('raw', Onlineconf::get('/x', 'raw'));
+        self::assertSame(3, Onlineconf::getInt('/x', 3));
+        self::assertSame('named', Onlineconf::getString(default: 'named', path: '/x'), 'named arguments, in any order');
+    }
+
+    public function testRequireThrowsWhenThereIsNoModule(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        $this->expectException(OpenException::class);
+        Onlineconf::requireString('/x');
+    }
+
+    public function testMethodsThatAreNotReadsThrowWhenThereIsNoModule(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        $this->expectException(OpenException::class);
+        Onlineconf::version();
     }
 }

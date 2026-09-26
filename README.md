@@ -119,7 +119,9 @@ Paths are always full paths. There is no application prefix; use `subtree()` whe
   from the configuration should compare `Onlineconf::version()` or call `Onlineconf::checkForUpdates()`
   itself; the package adds no hooks.
 - Opening the module file happens on the first use (first injection of `Module`, first facade call),
-  not at boot. A missing or invalid file throws the client's `OpenException` at that point.
+  not at boot. A missing or invalid file throws the client's `OpenException` at that point — except for the
+  facade's `get*()`, which return their default, before boot and after it alike; `require*()` and the methods
+  that are not reads still throw.
 - **A failed open is remembered for the life of the process** (under Octane, of the application
   container): it is noted once at `debug` level, and every later use rethrows it without any file system
   call, keyed by the configured file name — so a directory reached through a symlink (a Kubernetes
@@ -392,7 +394,9 @@ and the objects its `use` captured between calls — one more reason to keep tra
 - **A module file that cannot be opened does not stop the boot**: `get*` return their defaults, exactly as
   `config()` does on the lazy path, and nothing is logged. `require*` still throw the client's
   `OpenException` — a required node cannot be satisfied without a tree. A pod without the OnlineConf volume,
-  or a checkout before the first clone, boots on what `config/*.php` holds.
+  or a checkout before the first clone, boots on what `config/*.php` holds — and so does `php artisan
+  config:cache` there (an initContainer, say), although it loads the configuration of a second application
+  while the facade still belongs to the first, already booted one.
 - Immediate reads are recorded for `onlineconf:map`, whether or not they found anything.
 
 ### Seeing what is referenced

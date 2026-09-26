@@ -97,11 +97,18 @@ final class Onlineconf extends Facade
     public static function __callStatic($method, $args): mixed
     {
         $app = static::getFacadeApplication();
-        if ($app !== null && $app->bound(Module::class)) {
-            return parent::__callStatic($method, $args);
+        if ($app === null || !$app->bound(Module::class)) {
+            return self::immediate($method, $args);
         }
 
-        return self::immediate($method, $args);
+        try {
+            return parent::__callStatic($method, $args);
+        } catch (OpenException $e) {
+            // The same rule as before boot: no module file gives get* their default. This is also the path of
+            // a second application loading its configuration in this process — config:cache — whose facade
+            // still belongs to the first one.
+            return self::defaultOr($e, $method, $args);
+        }
     }
 
     /**
@@ -109,13 +116,7 @@ final class Onlineconf extends Facade
      */
     private static function immediate(string $method, array $args): mixed
     {
-        $type = self::READS[$method] ?? null;
-        $optional = $type !== null && !str_starts_with($method, 'require');
-        // Named arguments reach __callStatic() keyed by name, in the order they were written; the names are
-        // the client's own, so they identify the two arguments whatever order they came in.
-        $positional = array_values($args);
-        $default = $optional ? ($args['default'] ?? $positional[1] ?? null) : null;
-        $path = $args['path'] ?? $positional[0] ?? null;
+        [$type, $optional, $path, $default] = self::read($method, $args);
         if ($type !== null && is_string($path)) {
             EagerReads::record($path, $type, $default, !$optional);
         }
@@ -123,19 +124,54 @@ final class Onlineconf extends Facade
         try {
             $module = ImmediateModule::module();
         } catch (OpenException $e) {
-            // No module on this machine is a normal state: get* answer with what config/*.php would have
-            // used anyway, while require* cannot be satisfied.
-            if (!$optional) {
-                throw $e;
-            }
-
-            return $default;
+            return self::defaultOr($e, $method, $args);
         }
 
         /** @var callable $callable */
         $callable = [$module, $method];
 
         return $callable(...$args);
+    }
+
+    /**
+     * What a call reads: the type of a node read (null for any other method), whether it is an optional get*,
+     * its path and its default. Named arguments reach __callStatic() keyed by name, in the order they were
+     * written; the names are the client's own, so they identify the two arguments whatever order they came in.
+     *
+     * @param array<mixed> $args
+     *
+     * @return array{string|null, bool, mixed, mixed}
+     */
+    private static function read(string $method, array $args): array
+    {
+        $type = self::READS[$method] ?? null;
+        $optional = $type !== null && !str_starts_with($method, 'require');
+        $positional = array_values($args);
+
+        return [
+            $type,
+            $optional,
+            $args['path'] ?? $positional[0] ?? null,
+            $optional ? ($args['default'] ?? $positional[1] ?? null) : null,
+        ];
+    }
+
+    /**
+     * No module on this machine is a normal state: get* answer with what config/*.php would have used anyway,
+     * while require* and the methods that are not reads cannot be satisfied.
+     *
+     * @param array<mixed> $args
+     *
+     * @throws OpenException for require* and the methods that are not reads
+     */
+    private static function defaultOr(OpenException $e, string $method, array $args): mixed
+    {
+        [, $optional, , $default] = self::read($method, $args);
+        if (!$optional) {
+            throw $e;
+        }
+
+        return $default;
     }
 
     /**

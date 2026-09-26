@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1 — 2026-09-26
+
+### Fixed
+
+- `Onlineconf::get*()` after the package's provider has registered threw the client's `OpenException` on a
+  machine without a module file, instead of returning its default as it does before boot. This broke
+  `php artisan config:cache` without a module (an initContainer before the volume is mounted) for any
+  config file with an immediate read: the command loads the configuration of a second application while the
+  facade still belongs to the first, booted one. The facade now follows one absence rule on both paths:
+  `get*()` give their default, `require*()` and the methods that are not reads throw.
+
 ## 1.3.0 — 2026-09-25
 
 ### Added
