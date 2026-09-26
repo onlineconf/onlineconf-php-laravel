@@ -10,6 +10,8 @@
   config file with an immediate read: the command loads the configuration of a second application while the
   facade still belongs to the first, booted one. The facade now follows one absence rule on both paths:
   `get*()` give their default, `require*()` and the methods that are not reads throw.
+- An explicit named `default: null` is the default: `Onlineconf::get(default: null, path: '/p')` without a
+  module returned the path.
 
 ## 1.3.0 — 2026-09-25
 

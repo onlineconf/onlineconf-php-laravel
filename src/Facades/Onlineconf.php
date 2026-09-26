@@ -135,8 +135,9 @@ final class Onlineconf extends Facade
 
     /**
      * What a call reads: the type of a node read (null for any other method), whether it is an optional get*,
-     * its path and its default. Named arguments reach __callStatic() keyed by name, in the order they were
-     * written; the names are the client's own, so they identify the two arguments whatever order they came in.
+     * its path and its default. __callStatic() gets positional arguments under 0, 1, … and named ones under
+     * their names — the client's own — so a named argument is looked up by name, even when it is null, and
+     * a positional one by position; a positional path with a named default works either way.
      *
      * @param array<mixed> $args
      *
@@ -146,13 +147,12 @@ final class Onlineconf extends Facade
     {
         $type = self::READS[$method] ?? null;
         $optional = $type !== null && !str_starts_with($method, 'require');
-        $positional = array_values($args);
 
         return [
             $type,
             $optional,
-            $args['path'] ?? $positional[0] ?? null,
-            $optional ? ($args['default'] ?? $positional[1] ?? null) : null,
+            array_key_exists('path', $args) ? $args['path'] : ($args[0] ?? null),
+            $optional ? (array_key_exists('default', $args) ? $args['default'] : ($args[1] ?? null)) : null,
         ];
     }
 

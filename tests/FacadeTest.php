@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
+use Illuminate\Support\Facades\Facade;
 use Onlineconf\Exception\OpenException;
+use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
+use Onlineconf\Laravel\ImmediateModule;
 use Onlineconf\Module;
 
 final class FacadeTest extends TestCase
@@ -105,5 +108,35 @@ final class FacadeTest extends TestCase
 
         $this->expectException(OpenException::class);
         Onlineconf::version();
+    }
+
+    public function testAnExplicitNullDefaultByNameIsTheDefaultWithoutAModule(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        self::assertNull(Onlineconf::get(default: null, path: '/p'), 'not the path');
+        self::assertNull(Onlineconf::get(path: '/p', default: null));
+        self::assertSame('d', Onlineconf::getString('/p', default: 'd'), 'a positional path with a named default');
+    }
+
+    public function testAnExplicitNullDefaultByNameIsTheDefaultBeforeBootToo(): void
+    {
+        EagerReads::flush();
+        ImmediateModule::flush();
+        putenv('ONLINECONF_DIR=' . $this->tempDir());
+        Facade::setFacadeApplication(null);
+        try {
+            self::assertNull(Onlineconf::get(default: null, path: '/p'));
+            self::assertSame('d', Onlineconf::getString('/q', default: 'd'));
+
+            $reads = EagerReads::all();
+            self::assertSame(['/p', null], [$reads[0]->path, $reads[0]->default]);
+            self::assertSame(['/q', 'd'], [$reads[1]->path, $reads[1]->default]);
+        } finally {
+            putenv('ONLINECONF_DIR');
+            Facade::setFacadeApplication($this->application());
+            EagerReads::flush();
+            ImmediateModule::flush();
+        }
     }
 }
