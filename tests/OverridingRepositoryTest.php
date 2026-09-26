@@ -11,6 +11,7 @@ use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Config\MapEntry;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\Csv;
 use Onlineconf\Module;
 use Onlineconf\Source\ArraySource;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -348,5 +349,76 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
 
         $this->expectException(OpenException::class);
         $repository->get('node');
+    }
+
+    public function testATransformRunsOncePerModuleVersion(): void
+    {
+        Csv::$calls = 0;
+        $source = ArraySource::fromValues(['/node' => 'a,b']);
+        $module = new Module($source, $this->logger, 0);
+        $repository = new OverridingRepository(
+            ['node' => ['shaped', 'fallback']],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'transform' => [Csv::class, 'countedSplit']]]),
+            static fn (): Module => $module,
+            $this->logger,
+            ['node' => [Csv::class, 'countedSplit']],
+        );
+
+        self::assertSame(['a', 'b'], $repository->get('node'));
+        self::assertSame(['a', 'b'], $repository->get('node'));
+        self::assertSame(1, Csv::$calls);
+
+        $source->replaceValues(['/node' => 'c']);
+
+        self::assertSame(['c'], $repository->get('node'));
+        self::assertSame(2, Csv::$calls);
+
+        $source->replaceValues(['/node' => ['not a string']]);
+
+        self::assertSame(['shaped', 'fallback'], $repository->get('node'), 'the fallback is already shaped: not shaped again');
+        $source->replaceValues([]);
+        self::assertSame(['shaped', 'fallback'], $repository->get('node'));
+        self::assertSame(2, Csv::$calls);
+
+    }
+
+    public function testClonesShareTheShapedValues(): void
+    {
+        Csv::$calls = 0;
+        $module = new Module(ArraySource::fromValues(['/node' => 'a,b']), $this->logger, 0);
+        $repository = new OverridingRepository(
+            ['node' => []],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'transform' => [Csv::class, 'countedSplit']]]),
+            static fn (): Module => $module,
+            $this->logger,
+            ['node' => [Csv::class, 'countedSplit']],
+        );
+        // Octane gives every request a clone of the configuration repository.
+        $request = clone $repository;
+
+        self::assertSame(['a', 'b'], $repository->get('node'));
+        self::assertSame(['a', 'b'], $request->get('node'));
+        self::assertSame(1, Csv::$calls, 'the memo is shared between clones');
+    }
+
+    public function testAFailingTransformNamesTheKeyAndPath(): void
+    {
+        $repository = new OverridingRepository(
+            ['node' => null],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_STRING, 'transform' => 'trim']]),
+            static fn (): Module => new Module(ArraySource::fromValues(['/node' => 'x']), null, 0),
+            $this->logger,
+            ['node' => static function (string $value): never {
+                throw new \DomainException('bad value ' . $value);
+            }],
+        );
+
+        try {
+            $repository->get('node');
+            self::fail('a failing transform is a programming error and must surface');
+        } catch (\RuntimeException $e) {
+            self::assertSame('OnlineConf transform of node (/node) failed: bad value x', $e->getMessage());
+            self::assertInstanceOf(\DomainException::class, $e->getPrevious());
+        }
     }
 }

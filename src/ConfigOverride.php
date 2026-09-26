@@ -20,6 +20,8 @@ use WeakMap;
  *     \Onlineconf\Laravel\ConfigOverride::register($app);
  *
  * The map is derived from the {@see Ref} markers in config/*.php; there is no map to write by hand.
+ *
+ * @phpstan-import-type Entry from MapEntry
  */
 final class ConfigOverride
 {
@@ -44,7 +46,9 @@ final class ConfigOverride
      *
      * A configuration from config:cache has no markers left: its map is the one the caching application
      * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
-     * the same configuration changes nothing — neither the repository nor the registry of immediate reads.
+     * the same configuration changes nothing — neither the repository nor the registry of immediate reads —
+     * unless the first one failed: whatever throws — a transform on its fallback, the module manager, the
+     * logger — aborts the install, and the next call tries again.
      */
     public static function install(ApplicationContract $app): void
     {
@@ -65,55 +69,77 @@ final class ConfigOverride
         if ($config instanceof OverridingRepository || isset($installed[$config])) {
             return;
         }
-        $installed[$config] = true;
         $items = $config->all();
+        $transforms = [];
         // No markers left means the configuration came from config:cache written by an application that had
         // already resolved them: the map it derived is in the cached array.
-        $map = self::derive($items);
+        $map = self::derive($items, $transforms);
         if ($map === []) {
-            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'));
+            $map = MapEntry::normalize(Arr::get($items, 'onlineconf.map'), $items);
+            foreach ($map as $key => $entry) {
+                if ($entry['transform'] !== null) {
+                    $transforms[$key] = Transform::decode($entry['transform'], $key, $entry['path']);
+                }
+            }
         }
         Arr::set($items, 'onlineconf.map', $map);
-        EagerReads::trim();
 
         if ($map === []) {
             self::writeBack($config, $items);
-
-            return;
+        } else {
+            $manager = ModuleManagerFactory::fromContainer($app);
+            $app->instance(ModuleManager::class, $manager);
+            $app->instance('config', new OverridingRepository(
+                $items,
+                $map,
+                static fn (): Module => $manager->module(),
+                ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
+                $transforms,
+            ));
         }
 
-        $manager = ModuleManagerFactory::fromContainer($app);
-        $app->instance(ModuleManager::class, $manager);
-
-        $app->instance('config', new OverridingRepository(
-            $items,
-            $map,
-            static fn (): Module => $manager->module(),
-            ModuleManagerFactory::logger($app, Arr::get($items, 'onlineconf.log_channel')),
-        ));
+        // Only a complete install counts: anything that threw above is tried again by the next call.
+        $installed[$config] = true;
+        EagerReads::trim();
     }
 
     /**
-     * Replaces every marker in the configuration with its fallback and returns the map the markers declare.
+     * Replaces every marker in the configuration with its fallback and returns the map the markers declare;
+     * the transforms, decoded once, are collected for the repository.
      *
-     * @param array<mixed> $items
+     * @param array<mixed>            $items
+     * @param array<string, callable> $transforms
      *
-     * @return array<string, array{path: string, type: string, required: bool}>
+     * @return array<string, Entry>
      */
-    private static function derive(array &$items, string $prefix = ''): array
+    private static function derive(array &$items, array &$transforms, string $prefix = ''): array
     {
         $map = [];
         foreach ($items as $key => $value) {
             $dotted = $prefix === '' ? (string) $key : $prefix . '.' . $key;
             if ($value instanceof Ref) {
-                $map[$dotted] = ['path' => $value->path, 'type' => $value->type, 'required' => $value->required];
+                $map[$dotted] = [
+                    'path' => $value->path,
+                    'type' => $value->type,
+                    'required' => $value->required,
+                    'fallback' => $value->fallback,
+                    'transform' => $value->transform,
+                ];
                 $items[$key] = $value->fallback;
+                if ($value->transform !== null) {
+                    $transforms[$dotted] = Transform::decode($value->transform, $dotted, $value->path);
+                    // The configuration gets the shaped fallback, so config() without a module and config:cache
+                    // already have the final shape; a required marker has no fallback to shape.
+                    if (!$value->required) {
+                        $items[$key] = Transform::apply($transforms[$dotted], $value->fallback, $dotted, $value->path);
+                    }
+                }
 
                 continue;
             }
             if (is_array($value)) {
                 $nested = $value;
-                $map += self::derive($nested, $dotted);
+                $map += self::derive($nested, $transforms, $dotted);
                 $items[$key] = $nested;
             }
         }

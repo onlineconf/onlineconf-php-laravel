@@ -16,9 +16,9 @@ final class EagerReads
 
     private static int $kept = 0;
 
-    public static function record(string $path, string $type, mixed $default): void
+    public static function record(string $path, string $type, mixed $default, bool $required = false): void
     {
-        self::$reads[] = new EagerRead($path, $type, $default);
+        self::$reads[] = new EagerRead($path, $type, $default, $required);
     }
 
     /**

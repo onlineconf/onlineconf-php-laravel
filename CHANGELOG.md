@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.3.0 — 2026-09-25
+
+### Added
+
+- Post-processing for lazy markers: `getRef*($path, $fallback, $transform)` and `requireRef*($path, $transform)`
+  take an optional callable. The declared type stays the type of the node; the transform gets the typed value —
+  the node's, or the fallback — and its result is what `config()` returns. `ConfigOverride::install()` writes the
+  transformed fallback into the configuration, so `config()` without a module, `config()->all()` and
+  `config:cache` have the final shape; the derived map keeps the raw fallback and the stored transform.
+- The transformed node value is memoised per config key until the module version changes.
+- A transform may be a `Closure` (stored unsigned with `laravel/serializable-closure`, now a direct
+  dependency; a user static method's `Class::method(...)` included), a function name or a `[class, static
+  method]` pair. An invokable object, an object method (`[$obj, 'm']`, `$obj->m(...)`) and a first-class
+  callable of a function or of a PHP class's static method are an `InvalidArgumentException` naming the path
+  and the storable form, when the marker is built. Closures survive `config:cache` whatever `APP_KEY` is set,
+  now or later, and whatever their source raises when it is compiled again.
+- A transform that throws propagates as a `RuntimeException` naming the config key and the path. The memo is
+  shared between the clones Octane makes of the configuration repository per request.
+- `onlineconf:map` has a `Transform` column (`transform: bool` in `--json`) and shows the fallback as written.
+- `Ref::value()`: a marker reads its node on demand — the facade's immediate read of its type, with the
+  absence rules of `config()`, then its transform. For code outside `config/*.php`; a read after boot is not
+  listed by `onlineconf:map`, one while the configuration loads is among its immediate reads, with the marker's
+  own required flag. A held marker keeps its decoded transform, and with it a closure's `static` variables and
+  mutable `use` objects, between calls: keep transforms pure.
+- `onlineconf:map` shows whether an immediate read was a `require*` (`Required` column, `required` in `--json`).
+
+### Upgrading and rolling back
+
+- A configuration cache written by 1.2 keeps working: its map entries carry no fallback, which is then taken
+  from the cached configuration.
+- Rolling back to 1.2 needs `php artisan config:cache` again: a 1.3 cache holds the transformed fallbacks.
+
 ## 1.2.0 — 2026-09-25
 
 The 1.2 line replaces the 1.1 mechanisms with one: the nodes an application reads are declared in

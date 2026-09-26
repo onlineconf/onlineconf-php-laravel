@@ -6,6 +6,8 @@ namespace Onlineconf\Laravel\Tests;
 
 use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\Ref;
+use Onlineconf\Laravel\Tests\Support\Csv;
+use Onlineconf\Laravel\Transform;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class RefTest extends PHPUnitTestCase
@@ -106,5 +108,59 @@ final class RefTest extends PHPUnitTestCase
         $this->expectExceptionMessage('Onlineconf::getRef*() marker for /a/debug used as a value');
         // A cast is exactly the case getRef*() cannot serve: (bool) on any object is true, (int) is 1.
         self::assertNotSame('', (string) $ref);
+    }
+
+    public function testEveryConstructorTakesATransform(): void
+    {
+        $refs = [
+            Onlineconf::getRefString('/a', 'x', 'strtoupper'),
+            Onlineconf::getRefInt('/a', 1, 'strtoupper'),
+            Onlineconf::getRefFloat('/a', 1.0, 'strtoupper'),
+            Onlineconf::getRefBool('/a', true, 'strtoupper'),
+            Onlineconf::getRefDuration('/a', 1.0, 'strtoupper'),
+            Onlineconf::getRefDurationMs('/a', 1, 'strtoupper'),
+            Onlineconf::getRefStrings('/a', [], 'strtoupper'),
+            Onlineconf::getRefArray('/a', [], 'strtoupper'),
+            Onlineconf::getRef('/a', null, 'strtoupper'),
+            Onlineconf::requireRefString('/a', 'strtoupper'),
+            Onlineconf::requireRefInt('/a', 'strtoupper'),
+            Onlineconf::requireRefFloat('/a', 'strtoupper'),
+            Onlineconf::requireRefBool('/a', 'strtoupper'),
+            Onlineconf::requireRefDuration('/a', 'strtoupper'),
+            Onlineconf::requireRefDurationMs('/a', 'strtoupper'),
+            Onlineconf::requireRefStrings('/a', 'strtoupper'),
+            Onlineconf::requireRefArray('/a', 'strtoupper'),
+            Onlineconf::requireRef('/a', 'strtoupper'),
+        ];
+
+        foreach ($refs as $ref) {
+            self::assertSame('strtoupper', $ref->transform, $ref->type);
+        }
+        self::assertNull(Onlineconf::getRefString('/a', 'x')->transform, 'no transform unless one is given');
+    }
+
+    public function testAClosureTransformSurvivesVarExport(): void
+    {
+        $ref = Onlineconf::getRefString('/a', 'a,b', static fn (?string $value): array => explode(',', (string) $value));
+
+        $restored = eval('return ' . var_export($ref, true) . ';');
+
+        self::assertInstanceOf(Ref::class, $restored);
+        self::assertSame($ref->transform, $restored->transform);
+        self::assertIsArray($restored->transform);
+        self::assertSame(['a', 'b'], Transform::decode($restored->transform, 'app.hosts', '/a')('a,b'));
+    }
+
+    public function testATransformThatCannotBeCachedIsRejectedAtTheMarker(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('/my/hosts');
+
+        Onlineconf::getRefString('/my/hosts', null, new Csv());
+    }
+
+    public function testSetStateDropsAnUnusableTransform(): void
+    {
+        self::assertNull(Ref::__set_state(['path' => '/a', 'transform' => 5])->transform);
     }
 }
