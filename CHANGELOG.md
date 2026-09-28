@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.2 — 2026-09-28
+
+### Fixed
+
+- An immediate `Onlineconf::get*()` with a `null` default — `getString('/x', env('X'))` with `X` unset — threw
+  a `TypeError` on a machine that has its module, before boot and after it: the client's typed getters did not
+  take `null`. They do since `onlineconf/onlineconf` 1.2, and the facade's PHPDoc now says so, with the return
+  type following the default.
+
+### Changed
+
+- Requires `onlineconf/onlineconf` ^1.2.
+- The optional reads of markers — `config()` and `Ref::value()` — go through the client's `get*()` instead of
+  `require*()` and catching its exceptions. Behaviour is unchanged: a missing node gives the fallback silently,
+  a value that does not parse gives the client's warning (now logged once, by the client, in the configured
+  channel) and the fallback, invalid JSON an error and the fallback; required markers still read with
+  `require*()`.
+
 ## 1.3.1 — 2026-09-26
 
 ### Fixed

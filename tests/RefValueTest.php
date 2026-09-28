@@ -34,6 +34,7 @@ final class RefValueTest extends TestCase
         '/app/broken' => 'seight',
         '/app/hosts' => 'sx, y',
         '/app/opts' => 'j{"pool":5}',
+        '/app/badjson' => 'j{not json',
     ];
 
     private ?Application $bare = null;
@@ -275,5 +276,13 @@ final class RefValueTest extends TestCase
         self::assertSame(['x', 'y'], $ref->value());
         self::assertSame(MarkerReader::transform($ref), MarkerReader::transform($ref), 'the decoded closure is kept for the marker');
         self::assertSame(['x', 'y'], $ref->value());
+    }
+
+    public function testInvalidJsonWhileTheConfigurationLoadsFallsBackSilently(): void
+    {
+        $this->duringConfigLoad();
+
+        self::assertSame(['x'], Onlineconf::getRefArray('/app/badjson', ['x'])->value(), 'no logger exists yet');
+        self::assertNull(Onlineconf::getRefArray('/app/badjson', null)->value());
     }
 }

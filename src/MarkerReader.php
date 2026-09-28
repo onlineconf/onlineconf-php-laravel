@@ -77,22 +77,14 @@ final class MarkerReader
             return self::call(self::module($ref), 'require' . $getter, [$ref->path]);
         }
 
+        // The client's get* take the fallback as it is, null included: a node the tree does not have gives it,
+        // and so does a value that does not parse, after the client's warning.
         try {
-            $module = self::module($ref);
-            if ($ref->fallback !== null || $ref->type === Ref::TYPE_RAW) {
-                return self::call($module, 'get' . $getter, [$ref->path, $ref->fallback]);
-            }
-
-            // The client's typed getters take a default of their own type, so a null fallback is served here.
-            return self::call($module, 'require' . $getter, [$ref->path]);
-        } catch (NotFoundException|OpenException) {
-            return $ref->fallback;
-        } catch (FormatException|ParseException $e) {
-            self::log('warning', 'onlineconf: ' . $e->getMessage());
-
+            return self::call(self::module($ref), 'get' . $getter, [$ref->path, $ref->fallback]);
+        } catch (OpenException) {
             return $ref->fallback;
         } catch (InvalidJsonException $e) {
-            self::log('error', sprintf(
+            self::error(sprintf(
                 'OnlineConf value at %s is not valid JSON, the marker falls back to its fallback: %s',
                 $ref->path,
                 $e->getMessage(),
@@ -135,13 +127,10 @@ final class MarkerReader
     }
 
     /**
-     * What config() would log for the same node: the client's warning for a value that does not parse, an
-     * error for invalid JSON. While config/*.php loads there is no logger yet and the immediate module logs
-     * nothing either.
-     *
-     * @param 'warning'|'error' $level
+     * The error config() would log for the same node. While config/*.php loads there is no logger yet and the
+     * immediate module logs nothing either.
      */
-    private static function log(string $level, string $message): void
+    private static function error(string $message): void
     {
         $app = Onlineconf::getFacadeApplication();
         if ($app === null || !$app->bound(Module::class)) {
@@ -150,6 +139,6 @@ final class MarkerReader
         $config = $app->make('config');
         assert($config instanceof Repository);
 
-        ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel'))->log($level, $message);
+        ModuleManagerFactory::logger($app, $config->get('onlineconf.log_channel'))->error($message);
     }
 }

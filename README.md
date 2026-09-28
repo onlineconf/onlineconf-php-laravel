@@ -101,10 +101,15 @@ Or use the facade:
 use Onlineconf\Laravel\Facades\Onlineconf;
 
 Onlineconf::getInt('/my/service/db/port', 3306);
+Onlineconf::getString('/my/service/db/host', env('DB_HOST'));   // a null default is fine: null when absent
 Onlineconf::requireStrings('/my/service/hosts');
 Onlineconf::subtree('/my/service')->getBool('/enabled', false);
 Onlineconf::module('other')->getString('/key', '');      // another module: <dir>/other.cdb or a file path
 ```
+
+The typed getters take an optional, nullable default (the client's, since `onlineconf/onlineconf` 1.2): with
+`null` a missing or unparsable node gives `null`, and the return type follows the default for PHPStan — a
+non-null default still gives `string`, `int`, ….
 
 The facade proxies to the default module; its short name coincides with the client's static registry
 `Onlineconf\Onlineconf`, which this package does not use — import the facade, not the registry.

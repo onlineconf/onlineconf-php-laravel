@@ -8,15 +8,13 @@ use ArrayObject;
 use Closure;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
-use Onlineconf\Exception\FormatException;
 use Onlineconf\Exception\InvalidJsonException;
-use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
-use Onlineconf\Exception\ParseException;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Transform;
 use Onlineconf\Module;
 use Psr\Log\LoggerInterface;
+use stdClass;
 
 /**
  * Config repository that reads the nodes the {@see Ref} markers declare and falls back to the loaded
@@ -43,6 +41,9 @@ final class OverridingRepository extends Repository
      */
     private readonly ArrayObject $shaped;
 
+    /** "The client has no value for this key": what {@see node()} returns instead of a node value */
+    private readonly object $absent;
+
     /** @var array<string, list<string>> config key → mapped keys below it ("services" → ["services.mailer.host", …]) */
     private array $below = [];
 
@@ -64,6 +65,7 @@ final class OverridingRepository extends Repository
         /** @var ArrayObject<string, array{Module, string, mixed}> $shaped */
         $shaped = new ArrayObject();
         $this->shaped = $shaped;
+        $this->absent = new stdClass();
         $this->index();
     }
 
@@ -185,7 +187,7 @@ final class OverridingRepository extends Repository
             // Without a module a required node cannot be satisfied either: the OpenException propagates.
             $module = ($this->moduleFactory)();
 
-            return $this->shape($key, $module, self::read($module, $entry['type'], $path));
+            return $this->shape($key, $module, self::requireNode($module, $entry['type'], $path));
         }
         $module = $this->module();
         if ($module === null) {
@@ -193,13 +195,7 @@ final class OverridingRepository extends Repository
         }
 
         try {
-            $value = self::read($module, $entry['type'], $path);
-        } catch (NotFoundException) {
-            return $fallback;
-        } catch (FormatException|ParseException $e) {
-            $this->logger->warning('onlineconf: ' . $e->getMessage());
-
-            return $fallback;
+            $value = self::node($module, $entry['type'], $path, $this->absent);
         } catch (InvalidJsonException $e) {
             $this->logger->error(sprintf(
                 'OnlineConf value at %s is not valid JSON, config() falls back to the loaded configuration: %s',
@@ -210,7 +206,8 @@ final class OverridingRepository extends Repository
             return $fallback;
         }
 
-        return $this->shape($key, $module, $value);
+        // The fallback in the configuration is already shaped, so it is returned as it is.
+        return $value === $this->absent ? $fallback : $this->shape($key, $module, $value);
     }
 
     /**
@@ -235,12 +232,34 @@ final class OverridingRepository extends Repository
     }
 
     /**
-     * The client's require* for the declared type: a get* would need a default of that very type, and the
-     * fallback from config/*.php may be of any type — including null.
+     * The node through the client's get* of the declared type, or $absent when it has no value for the key:
+     * a node the tree does not have, or a value that does not parse — which the client has already reported
+     * as a warning. A typed getter never returns null for a node it could read; for the raw type $absent
+     * itself is the default, so a JSON null is still a value.
+     *
+     * @throws InvalidJsonException
+     */
+    private static function node(Module $module, string $type, string $path, object $absent): mixed
+    {
+        return match ($type) {
+            Ref::TYPE_STRING => $module->getString($path) ?? $absent,
+            Ref::TYPE_INT => $module->getInt($path) ?? $absent,
+            Ref::TYPE_FLOAT => $module->getFloat($path) ?? $absent,
+            Ref::TYPE_BOOL => $module->getBool($path) ?? $absent,
+            Ref::TYPE_DURATION => $module->getDuration($path) ?? $absent,
+            Ref::TYPE_DURATION_MS => $module->getDurationMs($path) ?? $absent,
+            Ref::TYPE_STRINGS => $module->getStrings($path) ?? $absent,
+            Ref::TYPE_ARRAY => $module->getArray($path) ?? $absent,
+            default => $module->get($path, $absent),
+        };
+    }
+
+    /**
+     * The client's require* for the declared type, for a required marker.
      *
      * @throws \Onlineconf\Exception\OnlineconfException
      */
-    private static function read(Module $module, string $type, string $path): mixed
+    private static function requireNode(Module $module, string $type, string $path): mixed
     {
         return match ($type) {
             Ref::TYPE_STRING => $module->requireString($path),
