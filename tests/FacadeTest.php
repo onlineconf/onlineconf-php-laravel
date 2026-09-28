@@ -139,4 +139,15 @@ final class FacadeTest extends TestCase
             ImmediateModule::flush();
         }
     }
+
+    public function testANullDefaultWithAModuleAndNoNodeIsNull(): void
+    {
+        // DA: Onlineconf::getString('/da/...', env('X')) with X unset, on a pod that has its module.
+        $this->useModule(['/other' => 'sx']);
+
+        self::assertNull(Onlineconf::getString('/p', null));
+        self::assertNull(Onlineconf::getInt('/p', null));
+        self::assertNull(Onlineconf::getStrings('/p', null));
+        self::assertSame('x', Onlineconf::getString('/other', null), 'a present node is read as always');
+    }
 }

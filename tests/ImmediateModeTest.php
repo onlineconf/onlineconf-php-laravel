@@ -201,4 +201,13 @@ final class ImmediateModeTest extends TestCase
         self::assertSame('dflt', $value);
         self::assertSame([], $errors, 'every test that boots the application would report it otherwise');
     }
+
+    public function testANullDefaultWithAModuleAndNoNodeIsNull(): void
+    {
+        $this->beforeProviders();
+
+        self::assertNull(Onlineconf::getString('/app/gone', null), 'the DA scenario, while config/*.php loads');
+        self::assertNull(Onlineconf::getArray('/app/gone', null));
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', null));
+    }
 }

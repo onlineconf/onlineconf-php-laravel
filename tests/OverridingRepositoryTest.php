@@ -165,7 +165,28 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         $repository = $this->repository(values: ['/app/workers' => 'eight']);
 
         self::assertSame(4, $repository->get('app.workers'));
-        self::assertTrue($this->log->hasWarningThatContains('/app/workers'));
+        self::assertCount(1, $this->log->getRecords(), 'one warning, in the client\'s wording');
+        self::assertTrue($this->log->hasWarningThatContains('onlineconf: array:/app/workers: '));
+    }
+
+    public function testAJsonNullIsAValueOfTheRawType(): void
+    {
+        $repository = $this->repository(
+            ['node' => 'dflt', 'gone' => 'dflt'],
+            ['node' => ['path' => '/node', 'type' => Ref::TYPE_RAW], 'gone' => ['path' => '/gone', 'type' => Ref::TYPE_RAW]],
+            ['/node' => ['k' => null]],
+        );
+        $module = new Module(new ArraySource(['/node' => 'jnull']), $this->logger, 0);
+        $null = new OverridingRepository(
+            ['node' => 'dflt'],
+            MapEntry::normalize(['node' => ['path' => '/node', 'type' => Ref::TYPE_RAW]]),
+            static fn (): Module => $module,
+            $this->logger,
+        );
+
+        self::assertNull($null->get('node'), 'a JSON null in the tree is not an absent node');
+        self::assertSame(['k' => null], $repository->get('node'));
+        self::assertSame('dflt', $repository->get('gone'));
     }
 
     public function testUnparsableValueFallsBackToNull(): void
