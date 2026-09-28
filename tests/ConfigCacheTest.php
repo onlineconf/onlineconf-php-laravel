@@ -299,6 +299,70 @@ final class ConfigCacheTest extends TestCase
         }
     }
 
+    /**
+     * @return array<string, array{bool, string, string}>
+     */
+    public static function freshConfiguration(): array
+    {
+        return [
+            'no module' => [false, 'fallback eager', 'fallback lazy'],
+            'a module' => [true, 'node eager', 'node lazy'],
+        ];
+    }
+
+    /**
+     * ConfigCacheCommand::getFreshConfiguration() requires bootstrap/app.php again and bootstraps a second
+     * application in the same process. Its config files load before its RegisterFacades, so the facade still
+     * belongs to the first, booted application — the one with Module::class bound.
+     */
+    #[DataProvider('freshConfiguration')]
+    public function testASecondApplicationLoadsItsConfigurationWhileTheFacadeBelongsToTheFirst(
+        bool $withModule,
+        string $eager,
+        string $lazy,
+    ): void {
+        if ($withModule) {
+            $this->writeModule(['/probe/eager' => 'snode eager', '/probe/lazy' => 'snode lazy']);
+        }
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        self::assertTrue($this->application()->bound(\Onlineconf\Module::class), 'the first application is booted');
+        $base = $this->tempDir() . '/app';
+        mkdir($base . '/config', 0o700, true);
+        file_put_contents($base . '/config/app.php', <<<'APP'
+            <?php
+
+            use Onlineconf\Laravel\Facades\Onlineconf;
+
+            return [
+                'url' => Onlineconf::getString('/probe/eager', 'fallback eager'),
+                'name' => Onlineconf::getRefString('/probe/lazy', 'fallback lazy'),
+                'env' => 'testing',
+                'timezone' => 'UTC',
+            ];
+            APP);
+        file_put_contents(
+            $base . '/config/logging.php',
+            "<?php return ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \\Monolog\\Handler\\NullHandler::class]]];",
+        );
+        file_put_contents(
+            $base . '/config/onlineconf.php',
+            sprintf("<?php return ['dir' => %s, 'check_interval' => 0];", var_export($this->tempDir(), true)),
+        );
+
+        $fresh = new Application($base);
+        ConfigOverride::register($fresh);
+        try {
+            $fresh->bootstrapWith([LoadConfiguration::class]);
+
+            $config = $fresh->make(Repository::class);
+            assert($config instanceof Repository);
+            self::assertSame($eager, $config->get('app.url'), 'the immediate read');
+            self::assertSame($lazy, $config->get('app.name'), 'the marker');
+        } finally {
+            $fresh->flush();
+        }
+    }
+
     private function boot(string $base): Application
     {
         $app = new Application($base);
