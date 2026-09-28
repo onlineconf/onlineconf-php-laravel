@@ -14,8 +14,8 @@
 - Requires `onlineconf/onlineconf` ^1.2.
 - The optional reads of markers — `config()` and `Ref::value()` — go through the client's `get*()` instead of
   `require*()` and catching its exceptions. Behaviour is unchanged: a missing node gives the fallback silently,
-  a value that does not parse gives the client's warning (now logged once, by the client, in the configured
-  channel) and the fallback, invalid JSON an error and the fallback; required markers still read with
+  a value that does not parse gives the warning (written by the client instead of the package, same wording
+  and channel) and the fallback, invalid JSON an error and the fallback; required markers still read with
   `require*()`.
 
 ## 1.3.1 — 2026-09-26
