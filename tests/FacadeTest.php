@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Tests;
 
 use Illuminate\Support\Facades\Facade;
+use Onlineconf\Exception\InvalidDefaultException;
+use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\Facades\Onlineconf;
@@ -82,11 +84,23 @@ final class FacadeTest extends TestCase
         self::assertSame('real', Onlineconf::getString('/app/name', ''));
     }
 
-    public function testGettersReturnTheirDefaultsWhenThereIsNoModule(): void
+    public function testWithoutARequiredModuleFileGettersThrowToo(): void
     {
         $this->config()->set('onlineconf.dir', $this->tempDir());
 
+        $this->expectException(OpenException::class);
+        $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');
+        Onlineconf::getString('/x', 'd');
+    }
+
+    public function testGettersReturnTheirDefaultsWithoutAnOptionalModuleFile(): void
+    {
+        $this->optionalModule();
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
         self::assertSame('d', Onlineconf::getString('/x', 'd'));
+        self::assertSame(3306, Onlineconf::getInt('/x', '3306'), 'a string default is read as an int');
+        self::assertNull(Onlineconf::getInt('/x', ''), 'an empty variable is not set');
         self::assertSame(['a'], Onlineconf::getStrings('/x', ['a']));
         self::assertSame(['k' => 1], Onlineconf::getArray('/x', ['k' => 1]));
         self::assertSame('raw', Onlineconf::get('/x', 'raw'));
@@ -94,24 +108,30 @@ final class FacadeTest extends TestCase
         self::assertSame('named', Onlineconf::getString(default: 'named', path: '/x'), 'named arguments, in any order');
     }
 
-    public function testRequireThrowsWhenThereIsNoModule(): void
+    public function testRequireNamesTheMissingOptionalModuleFile(): void
     {
+        $this->optionalModule();
         $this->config()->set('onlineconf.dir', $this->tempDir());
 
-        $this->expectException(OpenException::class);
+        self::assertSame('missing', Onlineconf::version());
+
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage('is missing');
         Onlineconf::requireString('/x');
     }
 
-    public function testMethodsThatAreNotReadsThrowWhenThereIsNoModule(): void
+    public function testABadStringDefaultFailsEvenWhereTheNodeExists(): void
     {
-        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->useModule(['/port' => 's8080']);
 
-        $this->expectException(OpenException::class);
-        Onlineconf::version();
+        $this->expectException(InvalidDefaultException::class);
+        $this->expectExceptionMessage('/port: invalid default for int: "abc" is not an integer');
+        Onlineconf::getInt('/port', 'abc');
     }
 
     public function testAnExplicitNullDefaultByNameIsTheDefaultWithoutAModule(): void
     {
+        $this->optionalModule();
         $this->config()->set('onlineconf.dir', $this->tempDir());
 
         self::assertNull(Onlineconf::get(default: null, path: '/p'), 'not the path');
@@ -121,6 +141,7 @@ final class FacadeTest extends TestCase
 
     public function testAnExplicitNullDefaultByNameIsTheDefaultBeforeBootToo(): void
     {
+        $this->optionalModule();
         EagerReads::flush();
         ImmediateModule::flush();
         putenv('ONLINECONF_DIR=' . $this->tempDir());

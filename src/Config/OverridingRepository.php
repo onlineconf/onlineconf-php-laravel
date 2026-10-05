@@ -9,7 +9,6 @@ use Closure;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Arr;
 use Onlineconf\Exception\InvalidJsonException;
-use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Transform;
 use Onlineconf\Module;
@@ -18,8 +17,9 @@ use stdClass;
 
 /**
  * Config repository that reads the nodes the {@see Ref} markers declare and falls back to the loaded
- * configuration for everything else: unmapped keys, nodes OnlineConf does not have, values that do not parse
- * and a module file that cannot be opened.
+ * configuration for everything else: unmapped keys, nodes OnlineConf does not have, values that do not parse,
+ * and an optional module file that is not there. A required one that is not there is the client's
+ * OpenException.
  *
  * Each node is read with the type its marker declares ({@see Ref::TYPES}); the fallback is returned as it is
  * and is never replaced by an empty value of that type. A required marker must find its node, in a module that
@@ -133,7 +133,7 @@ final class OverridingRepository extends Repository
     {
         $entry = $this->map[$key] ?? null;
 
-        return parent::has($key) || ($entry !== null && $this->module()?->has($entry['path']) === true);
+        return parent::has($key) || ($entry !== null && ($this->moduleFactory)()->has($entry['path']));
     }
 
     /**
@@ -184,15 +184,13 @@ final class OverridingRepository extends Repository
     {
         $path = $entry['path'];
         if ($entry['required']) {
-            // Without a module a required node cannot be satisfied either: the OpenException propagates.
             $module = ($this->moduleFactory)();
 
             return $this->shape($key, $module, self::requireNode($module, $entry['type'], $path));
         }
-        $module = $this->module();
-        if ($module === null) {
-            return $fallback;
-        }
+        // A required module file that is not there is the client's OpenException; an optional one is an empty
+        // module whose get* give nothing, so the fallback.
+        $module = ($this->moduleFactory)();
 
         try {
             $value = self::node($module, $entry['type'], $path, $this->absent);
@@ -274,16 +272,4 @@ final class OverridingRepository extends Repository
         };
     }
 
-    /**
-     * The module, or null when there is none. The module manager remembers a failed open for the process and
-     * notes it once, so asking it on every read costs nothing and a later fake() is seen at once.
-     */
-    private function module(): ?Module
-    {
-        try {
-            return ($this->moduleFactory)();
-        } catch (OpenException) {
-            return null;
-        }
-    }
 }

@@ -11,6 +11,7 @@ use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Facade;
 use Laravel\SerializableClosure\SerializableClosure;
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\Console\MapCommand;
@@ -300,13 +301,16 @@ final class ConfigCacheTest extends TestCase
     }
 
     /**
-     * @return array<string, array{bool, string, string}>
+     * required, a module file, the immediate read, the marker; null: the boot fails.
+     *
+     * @return array<string, array{bool, bool, string|null, string|null}>
      */
     public static function freshConfiguration(): array
     {
         return [
-            'no module' => [false, 'fallback eager', 'fallback lazy'],
-            'a module' => [true, 'node eager', 'node lazy'],
+            'no module file, required' => [true, false, null, null],
+            'no module file, optional' => [false, false, 'fallback eager', 'fallback lazy'],
+            'a module' => [true, true, 'node eager', 'node lazy'],
         ];
     }
 
@@ -317,10 +321,14 @@ final class ConfigCacheTest extends TestCase
      */
     #[DataProvider('freshConfiguration')]
     public function testASecondApplicationLoadsItsConfigurationWhileTheFacadeBelongsToTheFirst(
+        bool $required,
         bool $withModule,
-        string $eager,
-        string $lazy,
+        ?string $eager,
+        ?string $lazy,
     ): void {
+        if (!$required) {
+            $this->optionalModule();
+        }
         if ($withModule) {
             $this->writeModule(['/probe/eager' => 'snode eager', '/probe/lazy' => 'snode lazy']);
         }
@@ -352,6 +360,10 @@ final class ConfigCacheTest extends TestCase
         $fresh = new Application($base);
         ConfigOverride::register($fresh);
         try {
+            if ($eager === null) {
+                $this->expectException(OpenException::class);
+                $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');
+            }
             $fresh->bootstrapWith([LoadConfiguration::class]);
 
             $config = $fresh->make(Repository::class);

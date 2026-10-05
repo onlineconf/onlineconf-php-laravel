@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel;
 
 use LogicException;
+use Onlineconf\Type;
 
 /**
  * A reference to an OnlineConf node, written in config/*.php in place of the value:
@@ -67,17 +68,20 @@ final class Ref
      * The node's value right now, through the transform: the client's getter of the declared type — get*() with
      * the fallback, require*() for a required marker — on the module the facade would use, so it works after
      * the package's provider has registered and while config/*.php loads (recorded as an immediate read, with
-     * this marker's required flag). A node or module that is not there gives the fallback, or the client's
-     * exception for a required marker; an unparsable node gives the client's warning and the fallback, invalid
-     * JSON an error and the fallback.
+     * this marker's required flag). The fallback is read as the client reads a default — a string with the rules
+     * of a node value. A node that is not there, or an optional module file that is not there, gives the
+     * fallback, or the client's exception for a required marker; a required module file that is not there is
+     * the client's OpenException for any marker; an unparsable node gives the client's warning and the
+     * fallback, invalid JSON an error and the fallback.
      *
      * The value is never memoised: the client caches the raw values per module version. The transform is
      * decoded on this marker's first read and kept for as long as the marker is, so hold on to a marker that is
      * read often. onlineconf:map lists a read made while the configuration loads among its immediate reads, and
      * none made after boot.
      *
-     * @throws \Onlineconf\Exception\NotFoundException|\Onlineconf\Exception\OpenException for a required marker whose
-     *         node or module is missing
+     * @throws \Onlineconf\Exception\OpenException     when a required module file is not there
+     * @throws \Onlineconf\Exception\NotFoundException for a required marker whose node is missing
+     * @throws \Onlineconf\Exception\InvalidDefaultException when the fallback does not read as the declared type
      * @throws \Onlineconf\Exception\FormatException|\Onlineconf\Exception\ParseException|\Onlineconf\Exception\InvalidJsonException
      *         for a required marker whose node does not parse
      * @throws LogicException    when the stored transform is not a callable in this codebase
@@ -86,6 +90,24 @@ final class Ref
     public function value(): mixed
     {
         return MarkerReader::read($this);
+    }
+
+    /**
+     * The client's type of the declared one: the parser of the fallback, as of the node.
+     */
+    public function clientType(): Type
+    {
+        return match ($this->type) {
+            self::TYPE_STRING => Type::String,
+            self::TYPE_INT => Type::Int,
+            self::TYPE_FLOAT => Type::Float,
+            self::TYPE_BOOL => Type::Bool,
+            self::TYPE_DURATION => Type::Duration,
+            self::TYPE_DURATION_MS => Type::DurationMs,
+            self::TYPE_STRINGS => Type::Strings,
+            self::TYPE_ARRAY => Type::Array,
+            default => Type::Mixed,
+        };
     }
 
     /**

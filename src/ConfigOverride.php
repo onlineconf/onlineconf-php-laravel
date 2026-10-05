@@ -87,7 +87,13 @@ final class ConfigOverride
         if ($map === []) {
             self::writeBack($config, $items);
         } else {
-            $manager = ModuleManagerFactory::fromContainer($app);
+            // The manager already in the container, if any — the provider's, with its fakes — or a new one: this
+            // runs before the providers in a real boot.
+            $manager = $app->bound(ModuleManager::class) ? $app->make(ModuleManager::class) : ModuleManagerFactory::fromContainer($app);
+            assert($manager instanceof ModuleManager);
+            // Opened now, so a required module file that is not there fails the boot here, not at the first
+            // config() call; an optional one is an empty module that opens the file once it appears.
+            $manager->module();
             $app->instance(ModuleManager::class, $manager);
             $app->instance('config', new OverridingRepository(
                 $items,
@@ -125,13 +131,16 @@ final class ConfigOverride
                     'fallback' => $value->fallback,
                     'transform' => $value->transform,
                 ];
-                $items[$key] = $value->fallback;
+                // The fallback is read as the client reads a default — a string with the rules of a node value — so
+                // the configuration holds the declared type, a transform receives it, and a fallback that does not
+                // read fails the boot. A required marker has no fallback.
+                $items[$key] = $value->required ? null : $value->clientType()->parseDefault($value->fallback, $value->path);
                 if ($value->transform !== null) {
                     $transforms[$dotted] = Transform::decode($value->transform, $dotted, $value->path);
-                    // The configuration gets the shaped fallback, so config() without a module and config:cache
-                    // already have the final shape; a required marker has no fallback to shape.
+                    // The configuration gets the shaped fallback, so config() without a node and config:cache
+                    // already have the final shape.
                     if (!$value->required) {
-                        $items[$key] = Transform::apply($transforms[$dotted], $value->fallback, $dotted, $value->path);
+                        $items[$key] = Transform::apply($transforms[$dotted], $items[$key], $dotted, $value->path);
                     }
                 }
 

@@ -42,10 +42,12 @@ final class MarkerReader
     private static ?WeakMap $transforms = null;
 
     /**
-     * @throws NotFoundException|OpenException              for a required marker whose node or module is missing
+     * @throws OpenException                              when a required module file is not there, for any marker
+     * @throws NotFoundException                           for a required marker whose node is missing
      * @throws FormatException|ParseException|InvalidJsonException for a required marker whose node does not parse
-     * @throws LogicException                               when the stored transform is not a callable here
-     * @throws RuntimeException                             when the transform throws
+     * @throws \Onlineconf\Exception\InvalidDefaultException when the fallback does not read as the declared type
+     * @throws LogicException                              when the stored transform is not a callable here
+     * @throws RuntimeException                            when the transform throws
      */
     public static function read(Ref $ref): mixed
     {
@@ -77,12 +79,11 @@ final class MarkerReader
             return self::call(self::module($ref), 'require' . $getter, [$ref->path]);
         }
 
-        // The client's get* take the fallback as it is, null included: a node the tree does not have gives it,
-        // and so does a value that does not parse, after the client's warning.
+        // The client's get* read the fallback as they read a default — a string with the rules of a node value —
+        // and give it for a node the tree does not have, an optional module file that is not there, and a value
+        // that does not parse, after the client's warning. A required module file that is not there throws.
         try {
             return self::call(self::module($ref), 'get' . $getter, [$ref->path, $ref->fallback]);
-        } catch (OpenException) {
-            return $ref->fallback;
         } catch (InvalidJsonException $e) {
             self::error(sprintf(
                 'OnlineConf value at %s is not valid JSON, the marker falls back to its fallback: %s',
@@ -99,7 +100,7 @@ final class MarkerReader
      * immediate module of the process environment before — where the read is recorded, as the marker is
      * (optional or required), not as the getter that serves it.
      *
-     * @throws OpenException when there is no module file
+     * @throws OpenException when a required module file is not there
      */
     private static function module(Ref $ref): Module
     {

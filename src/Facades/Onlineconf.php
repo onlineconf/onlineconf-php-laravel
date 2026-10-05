@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Onlineconf\Laravel\Facades;
 
 use Illuminate\Support\Facades\Facade;
-use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\EagerReads;
 use Onlineconf\Laravel\ImmediateModule;
 use Onlineconf\Laravel\ModuleManager;
@@ -24,13 +23,13 @@ use Onlineconf\Subtree;
  * @method static ?string       getRaw(string $path)
  * @method static bool          has(string $path)
  * @method static ($default is null ? string|null : string) getString(string $path, ?string $default = null)
- * @method static ($default is null ? int|null : int) getInt(string $path, ?int $default = null)
- * @method static ($default is null ? float|null : float) getFloat(string $path, ?float $default = null)
- * @method static ($default is null ? bool|null : bool) getBool(string $path, ?bool $default = null)
- * @method static ($default is null ? float|null : float) getDuration(string $path, ?float $default = null)
- * @method static ($default is null ? int|null : int) getDurationMs(string $path, ?int $default = null)
- * @method static ($default is null ? list<string>|null : list<string>) getStrings(string $path, ?list<string> $default = null)
- * @method static ($default is null ? array<mixed>|null : array<mixed>) getArray(string $path, ?array<mixed> $default = null)
+ * @method static ($default is int|non-empty-string ? int : int|null) getInt(string $path, int|string|null $default = null)
+ * @method static ($default is int|float|non-empty-string ? float : float|null) getFloat(string $path, float|string|null $default = null)
+ * @method static ($default is bool|non-empty-string ? bool : bool|null) getBool(string $path, bool|string|null $default = null)
+ * @method static ($default is int|float|non-empty-string ? float : float|null) getDuration(string $path, float|string|null $default = null)
+ * @method static ($default is int|non-empty-string ? int : int|null) getDurationMs(string $path, int|string|null $default = null)
+ * @method static ($default is array|non-empty-string ? list<string> : list<string>|null) getStrings(string $path, list<string>|string|null $default = null)
+ * @method static ($default is array|non-empty-string ? array<mixed> : array<mixed>|null) getArray(string $path, array<mixed>|string|null $default = null)
  * @method static mixed         get(string $path, mixed $default)
  * @method static mixed         require(string $path)
  * @method static string        requireString(string $path)
@@ -88,8 +87,8 @@ final class Onlineconf extends Facade
      *
      * Until the service provider binds {@see Module}, which happens after config/*.php is loaded, the call
      * goes to the process-wide {@see ImmediateModule} and is recorded in {@see EagerReads}. That is what
-     * makes Onlineconf::getString() usable in config/*.php in place of env(). A module file that cannot be
-     * opened is a silent default for get* and an exception for require*.
+     * makes Onlineconf::getString() usable in config/*.php in place of env(). A required module file that is
+     * not there is the client's OpenException on either path; an optional one gives get* their defaults.
      *
      * @param string       $method
      * @param array<mixed> $args
@@ -101,14 +100,7 @@ final class Onlineconf extends Facade
             return self::immediate($method, $args);
         }
 
-        try {
-            return parent::__callStatic($method, $args);
-        } catch (OpenException $e) {
-            // The same rule as before boot: no module file gives get* their default. This is also the path of
-            // a second application loading its configuration in this process — config:cache — whose facade
-            // still belongs to the first one.
-            return self::defaultOr($e, $method, $args);
-        }
+        return parent::__callStatic($method, $args);
     }
 
     /**
@@ -121,14 +113,8 @@ final class Onlineconf extends Facade
             EagerReads::record($path, $type, $default, !$optional);
         }
 
-        try {
-            $module = ImmediateModule::module();
-        } catch (OpenException $e) {
-            return self::defaultOr($e, $method, $args);
-        }
-
         /** @var callable $callable */
-        $callable = [$module, $method];
+        $callable = [ImmediateModule::module(), $method];
 
         return $callable(...$args);
     }
@@ -156,23 +142,6 @@ final class Onlineconf extends Facade
         ];
     }
 
-    /**
-     * No module on this machine is a normal state: get* answer with what config/*.php would have used anyway,
-     * while require* and the methods that are not reads cannot be satisfied.
-     *
-     * @param array<mixed> $args
-     *
-     * @throws OpenException for require* and the methods that are not reads
-     */
-    private static function defaultOr(OpenException $e, string $method, array $args): mixed
-    {
-        [, $optional, , $default] = self::read($method, $args);
-        if (!$optional) {
-            throw $e;
-        }
-
-        return $default;
-    }
 
     /**
      * A marker for config/*.php read with the client's getString() on every config() call.
@@ -187,7 +156,7 @@ final class Onlineconf extends Facade
      * A marker for config/*.php read with the client's getInt() on every config() call.
      * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function getRefInt(string $path, ?int $fallback, ?callable $transform = null): Ref
+    public static function getRefInt(string $path, int|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_INT, $fallback, false, Transform::encode($path, $transform));
     }
@@ -196,7 +165,7 @@ final class Onlineconf extends Facade
      * A marker for config/*.php read with the client's getFloat() on every config() call.
      * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function getRefFloat(string $path, ?float $fallback, ?callable $transform = null): Ref
+    public static function getRefFloat(string $path, float|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_FLOAT, $fallback, false, Transform::encode($path, $transform));
     }
@@ -205,7 +174,7 @@ final class Onlineconf extends Facade
      * A marker for config/*.php read with the client's getBool() on every config() call.
      * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function getRefBool(string $path, ?bool $fallback, ?callable $transform = null): Ref
+    public static function getRefBool(string $path, bool|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_BOOL, $fallback, false, Transform::encode($path, $transform));
     }
@@ -215,7 +184,7 @@ final class Onlineconf extends Facade
      * The node is seconds as a float ("30s", "1m").
      * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function getRefDuration(string $path, ?float $fallback, ?callable $transform = null): Ref
+    public static function getRefDuration(string $path, float|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_DURATION, $fallback, false, Transform::encode($path, $transform));
     }
@@ -225,7 +194,7 @@ final class Onlineconf extends Facade
      * The node is milliseconds as an int.
      * The fallback is what config() returns while OnlineConf has no such node.
      */
-    public static function getRefDurationMs(string $path, ?int $fallback, ?callable $transform = null): Ref
+    public static function getRefDurationMs(string $path, int|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_DURATION_MS, $fallback, false, Transform::encode($path, $transform));
     }
@@ -235,9 +204,9 @@ final class Onlineconf extends Facade
      * The node is a comma-separated value or a JSON array of strings.
      * The fallback is what config() returns while OnlineConf has no such node.
      *
-     * @param list<string>|null $fallback
+     * @param list<string>|string|null $fallback
      */
-    public static function getRefStrings(string $path, ?array $fallback, ?callable $transform = null): Ref
+    public static function getRefStrings(string $path, array|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_STRINGS, $fallback, false, Transform::encode($path, $transform));
     }
@@ -247,9 +216,9 @@ final class Onlineconf extends Facade
      * The node is a JSON value.
      * The fallback is what config() returns while OnlineConf has no such node.
      *
-     * @param array<mixed>|null $fallback
+     * @param array<mixed>|string|null $fallback
      */
-    public static function getRefArray(string $path, ?array $fallback, ?callable $transform = null): Ref
+    public static function getRefArray(string $path, array|string|null $fallback, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_ARRAY, $fallback, false, Transform::encode($path, $transform));
     }

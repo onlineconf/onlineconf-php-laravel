@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Onlineconf\Laravel\Tests;
 
-use Monolog\Handler\TestHandler;
-use Monolog\Logger;
 use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\ModuleManager;
@@ -119,7 +117,15 @@ final class ModuleManagerTest extends TestCase
         self::assertSame('fake', $manager->module()->getString('/app/name', ''));
     }
 
-    public function testAFailedOpenIsRememberedAndNotedOnce(): void
+    public function testAMissingRequiredFileSaysHowToStartWithoutIt(): void
+    {
+        $this->expectException(OpenException::class);
+        $this->expectExceptionMessage('TREE.cdb: no such file; set ONLINECONF_REQUIRED=false to start without it');
+
+        $this->manager()->module();
+    }
+
+    public function testAMissingOptionalFileIsAnEmptyModuleThatPicksTheFileUp(): void
     {
         // The module directory is reached through a symlink, as a Kubernetes configMap (..data/) or macOS
         // (/var → /private/var) does: once the file exists its real path differs from the configured one.
@@ -127,41 +133,43 @@ final class ModuleManagerTest extends TestCase
         mkdir($real, 0o700);
         $link = sys_get_temp_dir() . '/onlineconf-laravel-link-' . bin2hex(random_bytes(6));
         symlink($real, $link);
-        $log = new TestHandler();
-        $manager = new ModuleManager(new Settings($link, 'TREE'), new Logger('test', [$log]), 0);
+        $manager = new ModuleManager(new Settings($link, 'TREE', false), new NullLogger(), 0);
 
         try {
-            try {
-                $manager->module();
-                self::fail('there is no module file yet');
-            } catch (OpenException $first) {
-            }
-            CdbWriter::write($real . '/TREE.cdb', ['/app/name' => 'sdemo']);
+            $module = $manager->module();
+            self::assertSame('missing', $module->version());
+            self::assertSame(80, $module->getInt('/port', '80'));
+            CdbWriter::write($real . '/TREE.cdb', ['/port' => 's8080']);
 
-            try {
-                $manager->module();
-                self::fail('a process that started without the file keeps serving without it');
-            } catch (OpenException $second) {
-                self::assertSame($first, $second, 'the remembered failure, not a new attempt');
-            }
+            self::assertSame(8080, $module->getInt('/port', '80'), 'the module a process holds opens the file');
+            self::assertSame(8080, $manager->module()->getInt('/port', '80'));
         } finally {
             unlink($link);
         }
-        self::assertCount(1, $log->getRecords());
-        self::assertTrue($log->hasDebugThatContains('TREE.cdb'), 'no module is a normal state, not an error');
     }
 
-    public function testAFakeReplacesARememberedFailure(): void
+    public function testARequiredFileThatAppearsIsOpenedByTheNextCall(): void
     {
         $manager = $this->manager();
         try {
             $manager->module();
+            self::fail('there is no module file yet');
         } catch (OpenException) {
         }
+        $this->writeModule(['/app/name' => 'sdemo']);
 
-        $manager->fake(['/app/name' => 'fake']);
+        self::assertSame('demo', $manager->module()->getString('/app/name'), 'a failed open is not remembered');
+    }
 
-        self::assertSame('fake', $manager->module()->getString('/app/name', ''));
+    public function testAFakeNeedsNoFileInEitherMode(): void
+    {
+        foreach ([true, false] as $required) {
+            $manager = new ModuleManager(new Settings($this->tempDir(), 'TREE', $required), new NullLogger(), 0);
+
+            $manager->fake(['/app/name' => 'fake']);
+
+            self::assertSame('fake', $manager->module()->getString('/app/name', ''));
+        }
     }
 
     public function testAMissingFileRaisesNoPhpWarning(): void

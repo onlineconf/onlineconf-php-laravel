@@ -87,7 +87,9 @@ final class SetCommand extends Command
         } catch (WriteException $e) {
             return $this->reportError($e->getMessage(), self::EXIT_ERROR);
         }
-        $manager->forgetFailure($file);
+        // A process that already holds this module — an optional one that was missing, or an older copy — sees
+        // the written file now rather than after its next update check.
+        $manager->module($file)->checkForUpdates();
         $this->output->writeln(sprintf('%s: %s %s', $file, $delete ? 'deleted' : 'set', $path));
 
         return self::SUCCESS;

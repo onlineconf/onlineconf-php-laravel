@@ -10,7 +10,9 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Facades\Facade;
+use Onlineconf\Exception\InvalidDefaultException;
 use Onlineconf\Exception\NotFoundException;
+use Onlineconf\Exception\OpenException;
 use Onlineconf\Laravel\Config\OverridingRepository;
 use Onlineconf\Laravel\ConfigOverride;
 use Onlineconf\Laravel\Console\MapCommand;
@@ -230,20 +232,74 @@ final class ConfigOverrideTest extends TestCase
         self::assertSame('From OnlineConf', config('app.name'));
     }
 
-    public function testAFakeAfterAFailedOpenReachesConfig(): void
+    public function testAFakeNeedsNoModuleFileEvenWhenItIsRequired(): void
+    {
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        Onlineconf::fake(['/app/name' => 'fake']);
+        $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame('fake', config('app.name'), 'the provider\'s manager, with its fake, is the one installed');
+        self::assertSame('fake', Onlineconf::getString('/app/name', 'd'));
+        self::assertSame('fake', Onlineconf::getRefString('/app/name', 'd')->value());
+    }
+
+    public function testWithoutARequiredModuleFileTheInstallFailsTheBoot(): void
     {
         $this->config()->set('onlineconf.dir', $this->tempDir());
         $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
+
+        $this->expectException(OpenException::class);
+        $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');
         ConfigOverride::install($this->application());
-        self::assertSame('From config', config('app.name'), 'no module file: the fallback');
+    }
 
-        Onlineconf::fake(['/app/name' => 'fake']);
+    public function testAnOptionalModuleFileThatAppearsLaterIsPickedUp(): void
+    {
+        $this->optionalModule();
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('onlineconf.check_interval', 0);
+        $this->config()->set('app.port', Onlineconf::getRefInt('/app/port', '80'));
+        ConfigOverride::install($this->application());
+        self::assertSame(80, config('app.port'), 'the fallback, read as an int');
 
-        self::assertSame('fake', config('app.name'), 'the fake replaces the remembered failure');
+        $this->writeModule(['/app/port' => 's8080']);
+
+        self::assertSame(8080, config('app.port'), 'without a restart');
+    }
+
+    public function testAStringFallbackIsReadBeforeTheTransform(): void
+    {
+        $this->optionalModule();
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+        $this->config()->set('app.port', Onlineconf::getRefInt('/app/port', '3306', static fn (int $port): string => 'port ' . $port));
+        $this->config()->set('app.none', Onlineconf::getRefInt('/app/none', ''));
+
+        ConfigOverride::install($this->application());
+
+        self::assertSame('port 3306', config('app.port'), 'the transform receives an int');
+        self::assertNull(config('app.none'), 'an empty variable is not set');
+        $map = config('onlineconf.map');
+        self::assertIsArray($map);
+        $entry = $map['app.port'] ?? null;
+        self::assertIsArray($entry);
+        self::assertSame('3306', $entry['fallback'], 'the map keeps the fallback as written');
+    }
+
+    public function testABadStringFallbackFailsTheBoot(): void
+    {
+        $this->useModule(['/app/port' => 's8080']);
+        $this->config()->set('app.port', Onlineconf::getRefInt('/app/port', 'many'));
+
+        $this->expectException(InvalidDefaultException::class);
+        $this->expectExceptionMessage('/app/port: invalid default for int: "many" is not an integer');
+        ConfigOverride::install($this->application());
     }
 
     public function testARepeatedInstallKeepsTheImmediateReadsOfTheLoad(): void
     {
+        $this->optionalModule();
         $base = $this->tempDir() . '/app';
         mkdir($base . '/config', 0o700, true);
         file_put_contents($base . '/config/app.php', <<<'APP'
@@ -292,6 +348,7 @@ final class ConfigOverrideTest extends TestCase
 
     public function testATransformShapesTheFallbackToo(): void
     {
+        $this->optionalModule();
         $this->config()->set('onlineconf.dir', $this->tempDir());
         $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', 'a, b', [Csv::class, 'split']));
 
