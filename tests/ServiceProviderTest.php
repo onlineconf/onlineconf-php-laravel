@@ -8,8 +8,10 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
 use Onlineconf\Cdb\CdbWriter;
 use Onlineconf\Laravel\ModuleManager;
+use Onlineconf\Laravel\ModuleManagerFactory;
 use Onlineconf\Laravel\OnlineconfServiceProvider;
 use Onlineconf\Module;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class ServiceProviderTest extends TestCase
 {
@@ -25,7 +27,7 @@ final class ServiceProviderTest extends TestCase
     public function testConfigDefaultsAreMerged(): void
     {
         self::assertSame(
-            ['dir' => null, 'module' => null, 'check_interval' => 5, 'log_channel' => null],
+            ['dir' => null, 'module' => null, 'required' => null, 'check_interval' => 5, 'log_channel' => null],
             $this->config()->get('onlineconf'),
         );
     }
@@ -148,5 +150,41 @@ final class ServiceProviderTest extends TestCase
                 unlink($target);
             }
         }
+    }
+
+    /**
+     * onlineconf.required, the process variable, the outcome: a cached configuration wins, as Laravel's does
+     * over .env.
+     *
+     * @return array<string, array{mixed, string|null, bool}>
+     */
+    public static function requiredSources(): array
+    {
+        return [
+            'nothing: required' => [null, null, true],
+            'the variable alone' => [null, 'false', false],
+            'cached false, no variable' => [false, null, false],
+            'cached "0", no variable' => ['0', null, false],
+            'cached true over a variable that says false' => [true, 'false', true],
+            'cached false over a variable that says true' => [false, 'true', false],
+        ];
+    }
+
+    #[DataProvider('requiredSources')]
+    public function testTheConfiguredModeWinsOverTheProcessVariable(mixed $configured, ?string $variable, bool $required): void
+    {
+        $this->config()->set('onlineconf.required', $configured);
+        self::setRequired($variable);
+
+        self::assertSame($required, ModuleManagerFactory::fromContainer($this->application())->settings()->required);
+    }
+
+    public function testTheProcessVariableIsReadAsEnvSeesItWithPutenvOff(): void
+    {
+        $this->config()->set('onlineconf.required', null);
+        $_ENV['ONLINECONF_REQUIRED'] = $_SERVER['ONLINECONF_REQUIRED'] = '(false)';
+        self::assertFalse(getenv('ONLINECONF_REQUIRED'));
+
+        self::assertFalse(ModuleManagerFactory::fromContainer($this->application())->settings()->required);
     }
 }

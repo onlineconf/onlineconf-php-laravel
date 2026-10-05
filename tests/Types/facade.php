@@ -15,6 +15,16 @@ use function PHPStan\Testing\assertType;
 
 function facadeGetters(?string $maybe): void
 {
+    assertType('int', Onlineconf::getInt('/p', '3306')); // a non-empty string reads as an int or throws
+    assertType('int|null', Onlineconf::getInt('/p', $maybe));
+    assertType('int|null', Onlineconf::getInt('/p', ''));
+    assertType('float', Onlineconf::getFloat('/p', 1));
+    assertType('bool', Onlineconf::getBool('/p', '1'));
+    assertType('bool|null', Onlineconf::getBool('/p', $maybe));
+    assertType('float', Onlineconf::getDuration('/p', '1m'));
+    assertType('int', Onlineconf::getDurationMs('/p', '1s'));
+    assertType('list<string>', Onlineconf::getStrings('/p', 'a,b'));
+    assertType('array<mixed>', Onlineconf::getArray('/p', '{"a":1}'));
     assertType('string', Onlineconf::getString('/p', 'd'));
     assertType('string|null', Onlineconf::getString('/p'));
     assertType('string|null', Onlineconf::getString('/p', null));

@@ -25,11 +25,39 @@ abstract class TestCase extends TestbenchTestCase
 
     protected function tearDown(): void
     {
+        self::setRequired(null);
         if ($this->tempDir !== null) {
             self::removeDir($this->tempDir);
             $this->tempDir = null;
         }
         parent::tearDown();
+    }
+
+    /**
+     * ONLINECONF_REQUIRED for this test, as a .env file would set it: in the process environment, where the
+     * client reads it, and in $_ENV/$_SERVER, where env() does (Testbench turns putenv() off for env()). null
+     * unsets it, so the module is required — the default. The application's "onlineconf.required" follows.
+     */
+    protected static function setRequired(?string $value): void
+    {
+        if ($value === null) {
+            putenv('ONLINECONF_REQUIRED');
+            unset($_ENV['ONLINECONF_REQUIRED'], $_SERVER['ONLINECONF_REQUIRED']);
+
+            return;
+        }
+        putenv('ONLINECONF_REQUIRED=' . $value);
+        $_ENV['ONLINECONF_REQUIRED'] = $value;
+        $_SERVER['ONLINECONF_REQUIRED'] = $value;
+    }
+
+    /**
+     * The module file is optional for this test, before boot and after it.
+     */
+    protected function optionalModule(): void
+    {
+        self::setRequired('false');
+        $this->config()->set('onlineconf.required', 'false');
     }
 
     private static function removeDir(string $dir): void

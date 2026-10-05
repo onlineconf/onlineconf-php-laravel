@@ -23,11 +23,15 @@ final class ModuleManagerFactory
         assert($config instanceof Repository);
         $logger = self::logger($app, $config->get('onlineconf.log_channel'));
         $settings = Settings::resolve(
-            getenv(),
+            ProcessEnvironment::variables(),
             self::stringOrNull($config->get('onlineconf.dir')),
             self::stringOrNull($config->get('onlineconf.module')),
             $logger,
         );
+        $required = self::required($config->get('onlineconf.required'));
+        if ($required !== null) {
+            $settings = new Settings($settings->dir, $settings->module, $required);
+        }
         $interval = $config->get('onlineconf.check_interval', Module::DEFAULT_CHECK_INTERVAL);
 
         return new ModuleManager($settings, $logger, is_numeric($interval) ? (int) $interval : Module::DEFAULT_CHECK_INTERVAL);
@@ -49,6 +53,21 @@ final class ModuleManagerFactory
         assert($logger instanceof LoggerInterface);
 
         return $logger;
+    }
+
+    /**
+     * "onlineconf.required" — env('ONLINECONF_REQUIRED'), which a config:cache'd process keeps — read as the
+     * client reads the variable: only false/"false"/"0" make the module optional; null or an empty value leave
+     * the decision to the process environment. A configured value wins over the variable, as a cached
+     * configuration wins over .env.
+     */
+    private static function required(mixed $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return !($value === false || (is_string($value) && in_array(strtolower($value), ['false', '0'], true)));
     }
 
     /**

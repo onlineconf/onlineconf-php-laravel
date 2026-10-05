@@ -107,6 +107,7 @@ final class MapCommandTest extends TestCase
 
     public function testATransformedMarkerShowsItsRawFallback(): void
     {
+        $this->optionalModule();
         $this->config()->set('onlineconf.dir', $this->tempDir());
         $this->config()->set('app.hosts', Onlineconf::getRefString('/app/hosts', 'a, b', [Csv::class, 'split']));
         ConfigOverride::install($this->application());

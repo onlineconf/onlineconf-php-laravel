@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.4.0 — 2026-10-05
+
+### Breaking
+
+- **A missing module file now fails the boot** unless `ONLINECONF_REQUIRED=false` (or `0`): the client's
+  `OpenException`, `<file>: no such file; set ONLINECONF_REQUIRED=false to start without it`, from the first
+  immediate read, from `ConfigOverride::install()` when the configuration has markers (the module is opened
+  there now), or from the first `Module` injection or facade call. Until 1.3 a missing file silently gave the
+  defaults. Development machines, CI and test suites without OnlineConf set `ONLINECONF_REQUIRED=false` — in
+  `.env`, `.env.testing` or `phpunit.xml`. `php artisan config:cache` must run where the module is mounted,
+  initContainers too: the cache freezes `onlineconf.required` (a cached `false` makes every process booting
+  from it tolerant) and the values of the immediate reads (cached without the module, they stay the defaults).
+
+### Added
+
+- The tolerant mode (`ONLINECONF_REQUIRED=false`): without its file the module is the client's empty module —
+  `get*` give their defaults, `require*` throw `NotFoundException` naming the missing file — and the file is
+  opened once it appears, without a restart. `onlineconf.required` (`env('ONLINECONF_REQUIRED')`) carries the
+  choice into a `config:cache`d process; the immediate reads take it from the process environment.
+- String fallbacks for lazy markers: `getRefInt(string $path, int|string|null $fallback, …)` and the other typed
+  `getRef*()`. `ConfigOverride::install()` reads the fallback with the client's parser of the declared type
+  before a transform, so the configuration holds the declared type and a fallback that does not read fails the
+  boot (`InvalidDefaultException`); `onlineconf:map` keeps showing the fallback as written.
+- The facade's typed getters take the client's string defaults — `Onlineconf::getInt('/db/port', env('DB_PORT'))`
+  — with PHPDoc conditional return types to match.
+- `about` shows the mode (strict or tolerant) and the module's state (loaded, missing, error).
+
+### Changed
+
+- Requires `onlineconf/onlineconf` ^1.3; `ModuleManager` and the immediate reads open the module with the
+  client's `Module::fromFile()`.
+- The package's own fallbacks for a missing module file are gone — the facade's default for `get*`, the
+  repository's and `Ref::value()`'s fallback, and the memory of a failed open: in tolerant mode everything goes
+  through the client's getters, in strict mode the exception propagates. A required file that appears later is
+  opened by the next call.
+- `ConfigOverride::install()` uses the module manager already in the container, so a fake set before the
+  install is kept.
+- The immediate reads and the module manager take `ONLINECONF_DIR`, `ONLINECONF_REQUIRED` and the other client
+  variables as `env()` does — `$_SERVER`, `$_ENV`, then `getenv()` — so they agree with `onlineconf.*` when
+  putenv() is off. Since `$_SERVER` comes first, a later `putenv()` in a CLI process no longer changes how they
+  resolve. A configured `onlineconf.required` wins over the process variable, as a cached configuration does
+  over `.env`.
+- The module manager keeps one module per configured file name and opens it by that path, so an optional
+  module opened before its file existed stays the same module when the file appears behind a symlinked
+  directory, and a configMap update — `..data` retargeted, the old directory deleted — is reloaded.
+
 ## 1.3.2 — 2026-09-28
 
 ### Fixed

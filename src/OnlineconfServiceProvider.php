@@ -53,13 +53,17 @@ final class OnlineconfServiceProvider extends ServiceProvider
 
         try {
             $version = $manager->module()->version();
+            $state = $version === 'missing' ? 'missing, opened once it appears' : 'loaded';
         } catch (OpenException $e) {
             $version = 'error: ' . $e->getMessage();
+            $state = 'error';
         }
 
         return [
             'Directory' => $settings->dir,
             'Module' => $settings->fileName($settings->module),
+            'Mode' => $settings->required ? 'strict' : 'tolerant',
+            'State' => $state,
             'Version' => $version,
         ];
     }

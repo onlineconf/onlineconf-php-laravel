@@ -31,6 +31,21 @@ final class AboutCommandTest extends TestCase
         self::assertStringContainsString($this->tempDir(), $output);
         self::assertStringContainsString($file, $output);
         self::assertMatchesRegularExpression('/\d+:\d+:\d+/', $output, 'version is inode:mtime:size');
+        self::assertMatchesRegularExpression('/Mode\s*\.*\s*strict/', $output);
+        self::assertMatchesRegularExpression('/State\s*\.*\s*loaded/', $output);
+    }
+
+    public function testAMissingOptionalModuleIsShownAsSuch(): void
+    {
+        $this->optionalModule();
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        [$code, $output] = $this->about();
+
+        self::assertSame(0, $code);
+        self::assertMatchesRegularExpression('/Mode\s*\.*\s*tolerant/', $output);
+        self::assertMatchesRegularExpression('/State\s*\.*\s*missing, opened once it appears/', $output);
+        self::assertMatchesRegularExpression('/Version\s*\.*\s*missing/', $output);
     }
 
     public function testUnopenableModuleIsReportedWithoutFailing(): void
@@ -41,6 +56,7 @@ final class AboutCommandTest extends TestCase
 
         self::assertSame(0, $code);
         self::assertStringContainsString('TREE.cdb', $output);
-        self::assertStringContainsStringIgnoringCase('error', $output);
+        self::assertMatchesRegularExpression('/State\s*\.*\s*error/', $output);
+        self::assertStringContainsString('ONLINECONF_REQUIRED=false', $output, 'the message says how to start without it');
     }
 }

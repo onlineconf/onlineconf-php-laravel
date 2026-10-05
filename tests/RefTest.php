@@ -8,6 +8,7 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Tests\Support\Csv;
 use Onlineconf\Laravel\Transform;
+use Onlineconf\Type;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
 final class RefTest extends PHPUnitTestCase
@@ -162,5 +163,25 @@ final class RefTest extends PHPUnitTestCase
     public function testSetStateDropsAnUnusableTransform(): void
     {
         self::assertNull(Ref::__set_state(['path' => '/a', 'transform' => 5])->transform);
+    }
+
+    public function testEveryDeclaredTypeHasTheClientTypeThatParsesItsFallback(): void
+    {
+        $expected = [
+            Ref::TYPE_STRING => Type::String,
+            Ref::TYPE_INT => Type::Int,
+            Ref::TYPE_FLOAT => Type::Float,
+            Ref::TYPE_BOOL => Type::Bool,
+            Ref::TYPE_DURATION => Type::Duration,
+            Ref::TYPE_DURATION_MS => Type::DurationMs,
+            Ref::TYPE_STRINGS => Type::Strings,
+            Ref::TYPE_ARRAY => Type::Array,
+            Ref::TYPE_RAW => Type::Mixed,
+        ];
+        self::assertSame(Ref::TYPES, array_keys($expected));
+
+        foreach ($expected as $type => $clientType) {
+            self::assertSame($clientType, (new Ref('/p', $type))->clientType(), $type);
+        }
     }
 }

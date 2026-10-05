@@ -11,40 +11,26 @@ use Psr\Log\NullLogger;
 
 /**
  * The module the facade reads from before the service provider registers — while Laravel loads config/*.php,
- * where config('onlineconf.*') does not exist yet. Settings therefore come from the process environment
- * (ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE, then the client's defaults), not from the config file.
+ * where config('onlineconf.*') does not exist yet. Settings therefore come from the environment as env() sees
+ * it ({@see ProcessEnvironment}: ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE, then the client's
+ * defaults), not from the config file.
  *
- * A file that cannot be opened is remembered, so a machine without a module pays one failed open per process
- * and not one per call; {@see \Onlineconf\Laravel\Facades\Onlineconf} turns that into a silent default for
- * get* and into an exception for require*.
+ * ONLINECONF_REQUIRED comes from there too: a required module file that is not there fails the boot at the
+ * first read; an optional one gives get* their defaults until the file appears.
  */
 final class ImmediateModule
 {
     private static ?Module $module = null;
 
-    private static ?OpenException $failure = null;
-
     /**
-     * The module of this process, opened once.
+     * The module of this process, opened once with the client's {@see Module::fromFile()}: required or optional
+     * as ONLINECONF_REQUIRED in the process environment says.
      *
-     * @throws OpenException when the module file cannot be opened; the failure is remembered and rethrown
+     * @throws OpenException when a required module file is not there, or cannot be opened
      */
     public static function module(): Module
     {
-        if (self::$failure !== null) {
-            throw self::$failure;
-        }
-        if (self::$module !== null) {
-            return self::$module;
-        }
-
-        try {
-            return self::$module = self::open();
-        } catch (OpenException $e) {
-            self::$failure = $e;
-
-            throw $e;
-        }
+        return self::$module ??= self::open();
     }
 
     /**
@@ -53,14 +39,13 @@ final class ImmediateModule
     public static function flush(): void
     {
         self::$module = null;
-        self::$failure = null;
     }
 
     private static function open(): Module
     {
         $logger = new NullLogger();
-        $settings = Settings::resolve(getenv(), null, null, $logger);
+        $settings = Settings::resolve(ProcessEnvironment::variables(), null, null, $logger);
 
-        return new Module(ModuleManager::open($settings->fileName($settings->module)), $logger, Module::DEFAULT_CHECK_INTERVAL);
+        return Module::fromFile($settings->fileName($settings->module), $settings->required, $logger, Module::DEFAULT_CHECK_INTERVAL);
     }
 }

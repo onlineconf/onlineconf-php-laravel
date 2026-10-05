@@ -11,6 +11,7 @@ use Illuminate\Log\LogManager;
 use Illuminate\Support\Facades\Facade;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Onlineconf\Exception\InvalidDefaultException;
 use Onlineconf\Exception\InvalidJsonException;
 use Onlineconf\Exception\NotFoundException;
 use Onlineconf\Exception\OpenException;
@@ -118,14 +119,27 @@ final class RefValueTest extends TestCase
         self::assertTrue($log->hasWarningThatContains('/app/broken'));
     }
 
-    public function testWithoutAModuleAnOptionalMarkerFallsBackAndARequiredOneThrows(): void
+    public function testWithoutARequiredModuleFileEveryMarkerThrows(): void
     {
         $this->config()->set('onlineconf.dir', $this->tempDir());
 
-        self::assertSame(2, Onlineconf::getRefInt('/app/workers', 2)->value());
-        self::assertNull(Onlineconf::getRefInt('/app/workers', null)->value());
-
         $this->expectException(OpenException::class);
+        $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');
+        Onlineconf::getRefInt('/app/workers', 2)->value();
+    }
+
+    public function testWithoutAnOptionalModuleFileAMarkerFallsBackAndARequiredOneSaysWhy(): void
+    {
+        $this->optionalModule();
+        $this->config()->set('onlineconf.dir', $this->tempDir());
+
+        self::assertSame(2, Onlineconf::getRefInt('/app/workers', 2)->value());
+        self::assertSame(2, Onlineconf::getRefInt('/app/workers', '2')->value(), 'a string fallback is read as an int');
+        self::assertNull(Onlineconf::getRefInt('/app/workers', null)->value());
+        self::assertNull(Onlineconf::getRefInt('/app/workers', '')->value());
+
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage('is missing');
         Onlineconf::requireRefInt('/app/workers')->value();
     }
 
@@ -183,15 +197,33 @@ final class RefValueTest extends TestCase
         self::assertSame(['/app/workers', Ref::TYPE_INT, null], [$reads[1]->path, $reads[1]->type, $reads[1]->default]);
     }
 
-    public function testWhileTheConfigurationLoadsWithoutAModule(): void
+    public function testWhileTheConfigurationLoadsWithoutARequiredModuleFile(): void
     {
+        $this->duringConfigLoad(withModule: false);
+
+        $this->expectException(OpenException::class);
+        Onlineconf::getRefString('/app/name', 'dflt')->value();
+    }
+
+    public function testWhileTheConfigurationLoadsWithoutAnOptionalModuleFile(): void
+    {
+        self::setRequired('false');
         $this->duringConfigLoad(withModule: false);
 
         self::assertSame('dflt', Onlineconf::getRefString('/app/name', 'dflt')->value());
         self::assertNull(Onlineconf::getRefString('/app/name', null)->value());
 
-        $this->expectException(OpenException::class);
+        $this->expectException(NotFoundException::class);
         Onlineconf::requireRefString('/app/name')->value();
+    }
+
+    public function testABadStringFallbackFailsTheRead(): void
+    {
+        $this->useModule(self::MODULE);
+
+        $this->expectException(InvalidDefaultException::class);
+        $this->expectExceptionMessage('/app/workers: invalid default for int: "many" is not an integer');
+        Onlineconf::getRefInt('/app/workers', 'many')->value();
     }
 
     /**

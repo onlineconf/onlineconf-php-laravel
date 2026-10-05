@@ -45,7 +45,9 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 
 `config('session.lifetime')` returns the integer `7200` and `config('app.debug')` returns `false`, while
 every other key keeps its value from `config/*.php`. Unset `ONLINECONF_DIR` (or set it in `.env`) when you
-are done: with no module to read, every marker serves the fallback next to it.
+are done. Without a module file the application then fails to boot — the module is required unless
+`ONLINECONF_REQUIRED=false` says otherwise (see «A missing module file» below); with it, every marker serves
+the fallback next to it.
 
 ## Configuration
 
@@ -54,6 +56,7 @@ are done: with no module to read, every marker serves the fallback next to it.
 | key | env | default | meaning |
 |---|---|---|---|
 | `dir` | `ONLINECONF_DIR` | `null` | directory with module files; `null` lets the client resolve it |
+| `required` | `ONLINECONF_REQUIRED` | `null` | whether the module file must exist; `null` = the process environment, required when unset; `false`/`0` = optional (see «A missing module file») |
 | `module` | `ONLINECONF_MODULE` | `null` | default module: a name (`TREE`) or a file path; `null` = client default |
 | `check_interval` | `ONLINECONF_CHECK_INTERVAL` | `5` | seconds between `stat()` checks for updates, `0` = every access |
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
@@ -65,10 +68,11 @@ and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onl
 `ONLINECONF_MODULE` if needed) into `.env`; the two config keys above are the explicit alternative and win
 over the environment. `config:cache` is safe: `env()` is read only inside the config file.
 
-Two setups do not export `.env` to `getenv()`: an application that calls `Env::disablePutenv()` (Testbench
-does while it builds the test application) and a `config:cache`d process, where `.env` is not read at all.
-The config keys keep working there, but the **immediate reads** of the next section resolve their directory
-from `getenv()` alone — give those processes a real `ONLINECONF_DIR` in the environment.
+The **immediate reads** of the next section run before `config/onlineconf.php` is loaded and read
+`ONLINECONF_DIR`, `ONLINECONF_CONFIG`, `CDB_CONFIG_FILE` and `ONLINECONF_REQUIRED` as `env()` sees them —
+`$_SERVER`, `$_ENV`, then `getenv()` — so an application with `Env::disablePutenv()` (Testbench does it) gets
+the same values on both paths. A `config:cache`d process does not read `.env` at all and runs no config file;
+there only the cached `onlineconf.*` keys count.
 
 The manager snapshots `dir`, `module`, `check_interval` and `log_channel` when it is first resolved (the first
 `Module` injection, facade call, or `ConfigOverride` install) — change them in `config/onlineconf.php` or
@@ -107,9 +111,23 @@ Onlineconf::subtree('/my/service')->getBool('/enabled', false);
 Onlineconf::module('other')->getString('/key', '');      // another module: <dir>/other.cdb or a file path
 ```
 
-The typed getters take an optional, nullable default (the client's, since `onlineconf/onlineconf` 1.2): with
-`null` a missing or unparsable node gives `null`, and the return type follows the default for PHPStan — a
-non-null default still gives `string`, `int`, ….
+The typed getters take the client's defaults (`onlineconf/onlineconf` 1.3): optional and nullable, and a string
+read with the rules of a node value, so `env()` goes in as it is — `Onlineconf::getInt('/db/port',
+env('DB_PORT'))` — with no `(int)` cast that would turn an unset variable into `0`:
+
+| Getter | A string default is read as | Examples |
+|---|---|---|
+| `getInt`, `getDurationMs` | an integer, a duration in milliseconds | `"3306"` → `3306`, `"1.5s"` → `1500` |
+| `getFloat`, `getDuration` | a number, a duration in seconds | `"0.5"` → `0.5`, `"1m"` → `60.0` |
+| `getBool` | `"1"` or `"0"` only | `"0"` → `false`, `"true"` is an error |
+| `getStrings` | comma-separated, or a JSON array of strings when it starts with `[` | `"a, b"` → `["a", "b"]` |
+| `getArray` | JSON | `'{"pool":5}'` → `["pool" => 5]` |
+
+`null` and `""` give `null` — an empty variable is an unset one; `getString()` and `get()` take their default
+as it is. A default that does not read is an `Onlineconf\Exception\InvalidDefaultException` naming the path
+and the type, thrown before the node is read — so a broken `.env` fails everywhere, not only where the tree
+has no value. The return type follows the default for PHPStan: `getInt('/p', '80')` is an `int`,
+`getInt('/p', env('X'))` an `?int`.
 
 The facade proxies to the default module; its short name coincides with the client's static registry
 `Onlineconf\Onlineconf`, which this package does not use — import the facade, not the registry.
@@ -123,20 +141,51 @@ Paths are always full paths. There is no application prefix; use `subtree()` whe
   process and reloads itself when the file changes (`check_interval`). Code that caches values derived
   from the configuration should compare `Onlineconf::version()` or call `Onlineconf::checkForUpdates()`
   itself; the package adds no hooks.
-- Opening the module file happens on the first use (first injection of `Module`, first facade call),
-  not at boot. A missing or invalid file throws the client's `OpenException` at that point — except for the
-  facade's `get*()`, which return their default, before boot and after it alike; `require*()` and the methods
-  that are not reads still throw.
-- **A failed open is remembered for the life of the process** (under Octane, of the application
-  container): it is noted once at `debug` level, and every later use rethrows it without any file system
-  call, keyed by the configured file name — so a directory reached through a symlink (a Kubernetes
-  configMap's `..data/`) does not bring the file back in once it appears.
-  A worker that started before the module file existed therefore serves the fallbacks of `config/*.php`
-  until it restarts — start workers after the tree is delivered, or restart them once it is. `fake()`
-  replaces a remembered failure. A file that is simply not there raises no PHP warning, not even a
-  suppressed one, so test runners that report those (Collision) stay quiet on a machine without OnlineConf.
+- Opening the module file happens on the first use (first injection of `Module`, first facade call), or at
+  boot when `ConfigOverride` is installed and the configuration has markers. What a missing file means is
+  the mode's — see the next section. A file that is there but cannot be opened is the client's
+  `OpenException` in either mode: a broken delivery, not a missing one.
+
+### A missing module file
+
+The module file is **required** unless `ONLINECONF_REQUIRED` says otherwise — read by the client, in the
+process environment, and by this package from `onlineconf.required` (`env('ONLINECONF_REQUIRED')`, which a
+`config:cache`d process keeps):
+
+| `ONLINECONF_REQUIRED` | Mode | Without the module file |
+|---|---|---|
+| unset, empty, or anything else | strict (the default) | the boot fails: the client's `OpenException`, `<file>: no such file; set ONLINECONF_REQUIRED=false to start without it` |
+| `false` (any case) or `0` | tolerant | an empty module: `get*` give their defaults, `require*` throw `NotFoundException` naming the missing file, `about` shows `missing` |
+
+- **Strict** is for production: a pod without the OnlineConf volume, or a node the updater has not reached,
+  does not start on the defaults of `config/*.php` by accident. It fails where the module is first used: an
+  immediate read in a config file, `ConfigOverride::install()` when the configuration has markers (the module
+  is opened there on purpose, so the boot fails rather than the first request), the first `Module` injection
+  or facade call. That includes `php artisan config:cache`: run it where the module is mounted — an
+  initContainer too.
+- **`config:cache` freezes the mode and the immediate reads.** The cache holds `onlineconf.required` as the
+  caching process saw it, and a cached configuration wins over the process environment, as it wins over
+  `.env` — so a cache written with `ONLINECONF_REQUIRED=false` makes every process that boots from it tolerant,
+  production included. It also holds the values the immediate reads returned while caching: written without
+  the module, they are the defaults for good. Never cache with the tolerant mode or without the module; mount
+  the module where `config:cache` runs.
+- **Tolerant** is for development machines, CI and test suites, which have no OnlineConf at all: put
+  `ONLINECONF_REQUIRED=false` in `.env`, `.env.testing` or `phpunit.xml`. Everything then goes through the
+  client's getters on an empty module, so a missing file and a missing node look the same — the defaults —
+  and the types are the same as with a file. The module looks for its file again on every update check
+  (`check_interval`) and serves it once it appears, without a restart.
+- `Onlineconf::fake()` needs no module file in either mode.
+- A file that is not there raises no PHP warning, not even a suppressed one, so test runners that report
+  those (Collision) stay quiet.
 
 ## Testing your application
+
+A test suite without OnlineConf needs the tolerant mode, or the application does not boot:
+
+```xml
+<!-- phpunit.xml -->
+<env name="ONLINECONF_REQUIRED" value="false"/>
+```
 
 ```php
 use Onlineconf\Laravel\Facades\Onlineconf;
@@ -170,7 +219,7 @@ final class MailerTest extends TestCase
 }
 ```
 
-Fakes need no module files; child lists are generated, so `children()` and `getTree()` work on them. A fake
+Fakes need no module files, in either mode; child lists are generated, so `children()` and `getTree()` work on them. A fake
 also feeds the `config()` override below, so `config('services.mailer.host')` returns the faked value.
 
 ## Overriding config() values
@@ -219,7 +268,8 @@ and name the nodes in `config/*.php` with the markers of the next section:
 From then on `config('services.mailer.host')` is read from OnlineConf. The value written in `config/*.php`
 (usually `env(...)`) stays as the fallback and is returned whenever: OnlineConf has no such node, the value
 does not parse as the declared type (a warning is logged, in the client's own wording), the value is invalid
-JSON (an error is logged), or there is no module file at all (noted once at `debug` level). Reading
+JSON (an error is logged), or the module file is not there and the mode is tolerant (see «A missing module
+file»). Reading
 `config('services')` as a whole includes the marked keys under it; an explicit `config()->set()` at runtime
 wins over the map.
 
@@ -241,8 +291,7 @@ wins over the map.
   not covered: `config()->all()` — it returns the loaded configuration without substitution (this is what
   keeps `config:cache` safe), so code or packages reading `all()` see the fallbacks.
 - Cost: an unmarked key costs one extra array lookup; a marked key is one `dba_fetch` on first read per
-  process, then the client's cache. Where there is no module at all, the first marked read tries the file
-  once and notes it; every later one costs a lookup of the remembered failure, with no file system call.
+  process, then the client's cache. A tolerant module without its file costs one `stat()` per update check.
 
 ## Naming nodes in config/*.php
 
@@ -307,10 +356,16 @@ from the environment.
 **Required nodes.** `requireRefString('/my/app/secret')` and its siblings take no fallback: the node must
 exist, and the override calls the client's `require*`, so `NotFoundException` (or `FormatException`,
 `ParseException`) reaches the caller instead of a silent fallback. `getRefString('/my/app/secret', null)` is
-the other case — a node that may be absent, with `null` as its fallback. A required node also needs a module:
-with no module file the client's `OpenException` reaches the caller, just as the immediate `require*` throws
-it. Use `requireRef*()` only where the application genuinely cannot run on a default, because a developer
-machine without OnlineConf cannot run that code path either.
+the other case — a node that may be absent, with `null` as its fallback. Without a module file a required
+node throws in both modes: the strict `OpenException`, or in tolerant mode a `NotFoundException` that names
+the missing file. Use `requireRef*()` only where the application genuinely cannot run on a default, because a
+developer machine without OnlineConf cannot run that code path either.
+
+**Fallbacks are read like defaults.** `getRefInt('/db/port', env('DB_PORT'))` takes the `env()` string as it is:
+`ConfigOverride::install()` reads the fallback with the client's parser of the declared type before anything
+else — so the configuration holds an `int`, a transform receives an `int`, `""` is `null`, and a fallback that
+does not read fails the boot with an `InvalidDefaultException`. `onlineconf:map` still shows the fallback as
+written.
 
 The exception also surfaces on an ancestor read: `config('database')` reads every marked key below it, so a
 missing required node throws there as well, not only on `config('database.connections.mysql.password')`.
@@ -368,8 +423,9 @@ A marker can also read its node on demand: `$ref->value()` returns the node's va
 marker's transform. It is the facade's immediate read of the declared type — `get<Type>($path, $fallback)`,
 or `require<Type>($path)` for a `requireRef*()` marker — so it works both while `config/*.php` loads and after
 boot, which here means after the package's service provider has registered. The absence rules are those of
-`config()`: no module or no node gives the fallback (the client's exception for a required marker), a value
-that does not parse gives the client's warning and the fallback, invalid JSON an error and the fallback.
+`config()`: no node, or no module file in tolerant mode, gives the fallback, read as a default (the client's
+exception for a required marker); no module file in strict mode is the `OpenException`; a value that does not
+parse gives the client's warning and the fallback, invalid JSON an error and the fallback.
 
 ```php
 $hosts = Onlineconf::getRefString('/my/service/hosts', config('services.hosts'), [Csv::class, 'split']);
@@ -396,12 +452,10 @@ and the objects its `use` captured between calls — one more reason to keep tra
 - **The module directory comes from the process environment** (`ONLINECONF_DIR`, `ONLINECONF_CONFIG`,
   `CDB_CONFIG_FILE`, then the client's defaults), not from `config/onlineconf.php`, which is not loaded yet.
   `.env` is already loaded at that point, so `ONLINECONF_DIR` in `.env` works; `onlineconf.dir` does not.
-- **A module file that cannot be opened does not stop the boot**: `get*` return their defaults, exactly as
-  `config()` does on the lazy path, and nothing is logged. `require*` still throw the client's
-  `OpenException` — a required node cannot be satisfied without a tree. A pod without the OnlineConf volume,
-  or a checkout before the first clone, boots on what `config/*.php` holds — and so does `php artisan
-  config:cache` there (an initContainer, say), although it loads the configuration of a second application
-  while the facade still belongs to the first, already booted one.
+- **A missing module file follows the mode**, read from the process environment here as well: strict, the
+  first immediate read fails the boot; tolerant, `get*` give their defaults, exactly as `config()` does on the
+  lazy path, and `require*` throw. The same holds for `php artisan config:cache`, which loads the
+  configuration of a second application while the facade still belongs to the first, already booted one.
 - Immediate reads are recorded for `onlineconf:map`, whether or not they found anything.
 
 ### Seeing what is referenced
@@ -420,16 +474,16 @@ the config files did not run — their values came from the cache.
 A node OnlineConf does not have is not an error and is not reported anywhere: the value in `config/*.php` —
 usually `env(...)` — **is** the default, and the tree holds only what must differ from that default or change
 without a deploy. A tree that answers nothing is a correct tree for an application that is happy with its
-defaults, which is why a developer machine with no module file works with no configuration at all.
+defaults — and a developer machine with no module file at all works once it says `ONLINECONF_REQUIRED=false`.
 
 What does get said out loud:
 
 - a value that does not parse as the declared type — `warning`, in the client's own wording;
 - a value that is not the JSON it claims to be — `error`;
-- no module file at all — one `debug` line per process, then silence;
+- no module file in strict mode — the client's `OpenException`, at boot; in tolerant mode, nothing;
+- a default or a fallback that does not read as its type — `InvalidDefaultException`, at the call or at boot;
 - a node a `requireRef*()` marker declares and OnlineConf does not have — the client's `NotFoundException`,
-  thrown at the `config()` call, because that node was declared as one that must exist; with no module file
-  at all, the client's `OpenException` instead.
+  thrown at the `config()` call, because that node was declared as one that must exist.
 
 ## Artisan
 

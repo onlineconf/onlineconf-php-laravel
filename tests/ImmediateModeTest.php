@@ -115,8 +115,18 @@ final class ImmediateModeTest extends TestCase
         Onlineconf::requireString('/app/gone');
     }
 
-    public function testGettersReturnTheirDefaultsWhenThereIsNoModule(): void
+    public function testWithoutARequiredModuleFileTheReadFailsTheBoot(): void
     {
+        $this->beforeProviders(withModule: false);
+
+        $this->expectException(OpenException::class);
+        $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');
+        Onlineconf::getString('/app/name', 'dflt');
+    }
+
+    public function testGettersReturnTheirDefaultsWithoutAnOptionalModuleFile(): void
+    {
+        self::setRequired('false');
         $this->beforeProviders(withModule: false);
 
         self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'a machine without a module still boots');
@@ -124,20 +134,23 @@ final class ImmediateModeTest extends TestCase
         self::assertCount(2, EagerReads::all(), 'the reads are listed even though nothing answered them');
     }
 
-    public function testRequireThrowsWhenThereIsNoModule(): void
+    public function testRequireNamesTheMissingOptionalModuleFile(): void
     {
+        self::setRequired('false');
         $this->beforeProviders(withModule: false);
 
-        $this->expectException(OpenException::class);
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessage('is missing');
         Onlineconf::requireString('/app/name');
     }
 
-    public function testOtherMethodsThrowWhenThereIsNoModule(): void
+    public function testOtherMethodsWorkOnAMissingOptionalModule(): void
     {
+        self::setRequired('false');
         $this->beforeProviders(withModule: false);
 
-        $this->expectException(OpenException::class);
-        Onlineconf::name();
+        self::assertSame('missing', Onlineconf::version());
+        self::assertSame('TREE', Onlineconf::name());
     }
 
     public function testTheModuleIsOpenedOncePerProcess(): void
@@ -173,18 +186,35 @@ final class ImmediateModeTest extends TestCase
         self::assertNotSame($before, ImmediateModule::module(), 'the handle of the config load is not kept open');
     }
 
-    public function testAFailedOpenIsNotRetriedWithinTheLoad(): void
+    public function testARequiredModuleFileThatAppearsIsOpenedByTheNextRead(): void
     {
+        $this->beforeProviders(withModule: false);
+        try {
+            Onlineconf::getString('/app/name', 'dflt');
+            self::fail('the module file is required');
+        } catch (OpenException) {
+        }
+
+        $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'), 'a failed open is not remembered');
+    }
+
+    public function testAnOptionalModuleFileThatAppearsIsPickedUp(): void
+    {
+        self::setRequired('false');
         $this->beforeProviders(withModule: false);
         self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'));
 
         $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+        self::assertTrue(ImmediateModule::module()->checkForUpdates(), 'the next update check opens it');
 
-        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'one failed open per configuration load');
+        self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'));
     }
 
     public function testNoModuleRaisesNoPhpWarning(): void
     {
+        self::setRequired('false');
         $this->beforeProviders(withModule: false);
         $errors = [];
         set_error_handler(static function (int $level, string $message) use (&$errors): bool {
@@ -209,5 +239,26 @@ final class ImmediateModeTest extends TestCase
         self::assertNull(Onlineconf::getString('/app/gone', null), 'the DA scenario, while config/*.php loads');
         self::assertNull(Onlineconf::getArray('/app/gone', null));
         self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', null));
+    }
+
+    public function testTheModeAndTheDirectoryAreReadAsEnvSeesThemWithPutenvOff(): void
+    {
+        // Testbench turns putenv() off for env(), as an application may: a .env file then fills only $_ENV and
+        // $_SERVER, and getenv() has nothing.
+        $this->beforeProviders(withModule: false);
+        putenv('ONLINECONF_DIR');
+        $_ENV['ONLINECONF_DIR'] = $_SERVER['ONLINECONF_DIR'] = $this->tempDir();
+        $_ENV['ONLINECONF_REQUIRED'] = $_SERVER['ONLINECONF_REQUIRED'] = 'false';
+        try {
+            self::assertFalse(getenv('ONLINECONF_REQUIRED'));
+
+            self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'optional, as the manager sees it');
+
+            $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+            ImmediateModule::flush();
+            self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'), 'the directory of .env');
+        } finally {
+            unset($_ENV['ONLINECONF_DIR'], $_SERVER['ONLINECONF_DIR']);
+        }
     }
 }

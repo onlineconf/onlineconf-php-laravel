@@ -331,19 +331,28 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
         );
     }
 
-    public function testNoModuleServesTheFallbacks(): void
+    public function testARequiredModuleFileThatIsNotThereFailsTheRead(): void
     {
         $repository = new OverridingRepository(
             self::ITEMS,
             MapEntry::normalize(self::MAP),
-            static fn (): Module => throw new OpenException('cannot open TREE.cdb'),
+            static fn (): Module => throw new OpenException('TREE.cdb: no such file'),
             $this->logger,
         );
+
+        $this->expectException(OpenException::class);
+        $repository->get('app.name');
+    }
+
+    public function testAnOptionalModuleFileThatIsNotThereServesTheFallbacks(): void
+    {
+        $module = Module::fromFile(sys_get_temp_dir() . '/onlineconf-laravel-none-' . bin2hex(random_bytes(6)) . '.cdb', false, $this->logger, 0);
+        $repository = new OverridingRepository(self::ITEMS, MapEntry::normalize(self::MAP), static fn (): Module => $module, $this->logger);
 
         self::assertSame('From config', $repository->get('app.name'));
         self::assertSame(4, $repository->get('app.workers'));
         self::assertFalse($repository->has('absent'));
-        self::assertSame([], $this->log->getRecords(), 'the module manager notes it, once per process');
+        self::assertSame([], $this->log->getRecords(), 'a missing optional module is not worth a log line');
     }
 
     public function testRequiredNodeThrowsWhenOnlineconfDoesNotHaveIt(): void
