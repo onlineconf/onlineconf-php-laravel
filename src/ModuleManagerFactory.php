@@ -23,7 +23,7 @@ final class ModuleManagerFactory
         assert($config instanceof Repository);
         $logger = self::logger($app, $config->get('onlineconf.log_channel'));
         $settings = Settings::resolve(
-            getenv(),
+            ProcessEnvironment::variables(),
             self::stringOrNull($config->get('onlineconf.dir')),
             self::stringOrNull($config->get('onlineconf.module')),
             $logger,
@@ -58,7 +58,8 @@ final class ModuleManagerFactory
     /**
      * "onlineconf.required" — env('ONLINECONF_REQUIRED'), which a config:cache'd process keeps — read as the
      * client reads the variable: only false/"false"/"0" make the module optional; null or an empty value leave
-     * the decision to the process environment.
+     * the decision to the process environment. A configured value wins over the variable, as a cached
+     * configuration wins over .env.
      */
     private static function required(mixed $value): ?bool
     {

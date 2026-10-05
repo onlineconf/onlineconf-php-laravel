@@ -17,6 +17,8 @@ return [
     // required when that is unset too — a missing file then fails the boot. "false" or "0": optional — a
     // missing file is an empty module, get* give their defaults, and the file is opened once it appears. The
     // immediate reads in config/*.php run before this file is loaded and read ONLINECONF_REQUIRED directly.
+    // config:cache freezes this value and it wins over the process environment: cache with the module mounted
+    // and without "false" here, or every process booting from the cache is tolerant.
     'required' => env('ONLINECONF_REQUIRED'),
 
     // Seconds between stat() checks for updates; 0 checks on every access.

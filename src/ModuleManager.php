@@ -17,8 +17,15 @@ use Psr\Log\LoggerInterface;
  */
 final class ModuleManager
 {
-    /** @var array<string, Module> modules by resolved file path */
+    /** @var array<string, Module> modules by resolved file path, so two names of one file share a module */
     private array $modules = [];
+
+    /**
+     * @var array<string, Module> modules by configured file name: an optional module opened before its file
+     *      existed stays the module of that name once the file appears, even where the directory is a symlink
+     *      (a configMap's ..data/) and the real path differs from the configured one
+     */
+    private array $named = [];
 
     public function __construct(
         private readonly Settings $settings,
@@ -38,9 +45,13 @@ final class ModuleManager
      */
     public function module(?string $name = null): Module
     {
-        $key = $this->key($this->settings->fileName($name ?? $this->settings->module));
+        $file = $this->settings->fileName($name ?? $this->settings->module);
+        if (isset($this->named[$file])) {
+            return $this->named[$file];
+        }
+        $key = $this->key($file);
 
-        return $this->modules[$key] ??= Module::fromFile($key, $this->settings->required, $this->logger, $this->checkInterval);
+        return $this->named[$file] = $this->modules[$key] ??= Module::fromFile($key, $this->settings->required, $this->logger, $this->checkInterval);
     }
 
     public function settings(): Settings
@@ -58,6 +69,7 @@ final class ModuleManager
     public function fake(array $values = [], ?string $name = null): ArraySource
     {
         $source = ArraySource::fromValues($values);
+        $this->named = [];
         $this->modules[$this->key($this->settings->fileName($name ?? $this->settings->module))] = new Module($source, $this->logger, 0);
 
         return $source;

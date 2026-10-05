@@ -142,7 +142,7 @@ final class ModuleManagerTest extends TestCase
             CdbWriter::write($real . '/TREE.cdb', ['/port' => 's8080']);
 
             self::assertSame(8080, $module->getInt('/port', '80'), 'the module a process holds opens the file');
-            self::assertSame(8080, $manager->module()->getInt('/port', '80'));
+            self::assertSame($module, $manager->module(), 'and stays the module of that name, symlink or not');
         } finally {
             unlink($link);
         }

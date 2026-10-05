@@ -68,10 +68,11 @@ and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onl
 `ONLINECONF_MODULE` if needed) into `.env`; the two config keys above are the explicit alternative and win
 over the environment. `config:cache` is safe: `env()` is read only inside the config file.
 
-Two setups do not export `.env` to `getenv()`: an application that calls `Env::disablePutenv()` (Testbench
-does while it builds the test application) and a `config:cache`d process, where `.env` is not read at all.
-The config keys keep working there, but the **immediate reads** of the next section resolve their directory
-from `getenv()` alone — give those processes a real `ONLINECONF_DIR` in the environment.
+The **immediate reads** of the next section run before `config/onlineconf.php` is loaded and read
+`ONLINECONF_DIR`, `ONLINECONF_CONFIG`, `CDB_CONFIG_FILE` and `ONLINECONF_REQUIRED` as `env()` sees them —
+`$_SERVER`, `$_ENV`, then `getenv()` — so an application with `Env::disablePutenv()` (Testbench does it) gets
+the same values on both paths. A `config:cache`d process does not read `.env` at all and runs no config file;
+there only the cached `onlineconf.*` keys count.
 
 The manager snapshots `dir`, `module`, `check_interval` and `log_channel` when it is first resolved (the first
 `Module` injection, facade call, or `ConfigOverride` install) — change them in `config/onlineconf.php` or
@@ -160,8 +161,14 @@ process environment, and by this package from `onlineconf.required` (`env('ONLIN
   does not start on the defaults of `config/*.php` by accident. It fails where the module is first used: an
   immediate read in a config file, `ConfigOverride::install()` when the configuration has markers (the module
   is opened there on purpose, so the boot fails rather than the first request), the first `Module` injection
-  or facade call. That includes `php artisan config:cache` in an initContainer that runs before the volume is
-  mounted — set `ONLINECONF_REQUIRED=false` there, or mount the volume first.
+  or facade call. That includes `php artisan config:cache`: run it where the module is mounted — an
+  initContainer too.
+- **`config:cache` freezes the mode and the immediate reads.** The cache holds `onlineconf.required` as the
+  caching process saw it, and a cached configuration wins over the process environment, as it wins over
+  `.env` — so a cache written with `ONLINECONF_REQUIRED=false` makes every process that boots from it tolerant,
+  production included. It also holds the values the immediate reads returned while caching: written without
+  the module, they are the defaults for good. Never cache with the tolerant mode or without the module; mount
+  the module where `config:cache` runs.
 - **Tolerant** is for development machines, CI and test suites, which have no OnlineConf at all: put
   `ONLINECONF_REQUIRED=false` in `.env`, `.env.testing` or `phpunit.xml`. Everything then goes through the
   client's getters on an empty module, so a missing file and a missing node look the same — the defaults —

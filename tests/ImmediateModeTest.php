@@ -240,4 +240,25 @@ final class ImmediateModeTest extends TestCase
         self::assertNull(Onlineconf::getArray('/app/gone', null));
         self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', null));
     }
+
+    public function testTheModeAndTheDirectoryAreReadAsEnvSeesThemWithPutenvOff(): void
+    {
+        // Testbench turns putenv() off for env(), as an application may: a .env file then fills only $_ENV and
+        // $_SERVER, and getenv() has nothing.
+        $this->beforeProviders(withModule: false);
+        putenv('ONLINECONF_DIR');
+        $_ENV['ONLINECONF_DIR'] = $_SERVER['ONLINECONF_DIR'] = $this->tempDir();
+        $_ENV['ONLINECONF_REQUIRED'] = $_SERVER['ONLINECONF_REQUIRED'] = 'false';
+        try {
+            self::assertFalse(getenv('ONLINECONF_REQUIRED'));
+
+            self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'optional, as the manager sees it');
+
+            $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
+            ImmediateModule::flush();
+            self::assertSame('From OnlineConf', Onlineconf::getString('/app/name', 'dflt'), 'the directory of .env');
+        } finally {
+            unset($_ENV['ONLINECONF_DIR'], $_SERVER['ONLINECONF_DIR']);
+        }
+    }
 }

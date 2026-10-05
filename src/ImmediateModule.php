@@ -11,8 +11,9 @@ use Psr\Log\NullLogger;
 
 /**
  * The module the facade reads from before the service provider registers — while Laravel loads config/*.php,
- * where config('onlineconf.*') does not exist yet. Settings therefore come from the process environment
- * (ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE, then the client's defaults), not from the config file.
+ * where config('onlineconf.*') does not exist yet. Settings therefore come from the environment as env() sees
+ * it ({@see ProcessEnvironment}: ONLINECONF_DIR, ONLINECONF_CONFIG, CDB_CONFIG_FILE, then the client's
+ * defaults), not from the config file.
  *
  * ONLINECONF_REQUIRED comes from there too: a required module file that is not there fails the boot at the
  * first read; an optional one gives get* their defaults until the file appears.
@@ -43,7 +44,7 @@ final class ImmediateModule
     private static function open(): Module
     {
         $logger = new NullLogger();
-        $settings = Settings::resolve(getenv(), null, null, $logger);
+        $settings = Settings::resolve(ProcessEnvironment::variables(), null, null, $logger);
 
         return Module::fromFile($settings->fileName($settings->module), $settings->required, $logger, Module::DEFAULT_CHECK_INTERVAL);
     }

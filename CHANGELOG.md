@@ -9,8 +9,9 @@
   immediate read, from `ConfigOverride::install()` when the configuration has markers (the module is opened
   there now), or from the first `Module` injection or facade call. Until 1.3 a missing file silently gave the
   defaults. Development machines, CI and test suites without OnlineConf set `ONLINECONF_REQUIRED=false` — in
-  `.env`, `.env.testing` or `phpunit.xml` — and so does `php artisan config:cache` in an initContainer that
-  runs before the module is mounted.
+  `.env`, `.env.testing` or `phpunit.xml`. `php artisan config:cache` must run where the module is mounted,
+  initContainers too: the cache freezes `onlineconf.required` (a cached `false` makes every process booting
+  from it tolerant) and the values of the immediate reads (cached without the module, they stay the defaults).
 
 ### Added
 
@@ -36,6 +37,11 @@
   opened by the next call.
 - `ConfigOverride::install()` uses the module manager already in the container, so a fake set before the
   install is kept.
+- The immediate reads take `ONLINECONF_DIR`, `ONLINECONF_REQUIRED` and the other client variables as `env()`
+  does — `$_SERVER`, `$_ENV`, then `getenv()` — so they agree with `onlineconf.*` when putenv() is off. A
+  configured `onlineconf.required` wins over the process variable, as a cached configuration does over `.env`.
+- The module manager keeps one module per configured file name, so an optional module opened before its file
+  existed stays the same module when the file appears behind a symlinked directory.
 
 ## 1.3.2 — 2026-09-28
 
