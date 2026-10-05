@@ -191,4 +191,26 @@ final class ModuleManagerTest extends TestCase
 
         self::assertSame([], $errors);
     }
+
+    public function testAConfigMapSwapIsServed(): void
+    {
+        // kubelet updates a configMap: the new data goes to a new hidden directory, "..data" is retargeted to it
+        // atomically, the old directory is deleted. The module file is "<mount>/TREE.cdb" -> "..data/TREE.cdb".
+        $mount = $this->tempDir() . '/mount';
+        mkdir($mount . '/..2026_one', 0o700, true);
+        CdbWriter::write($mount . '/..2026_one/TREE.cdb', ['/k' => 'sone']);
+        symlink('..2026_one', $mount . '/..data');
+        symlink('..data/TREE.cdb', $mount . '/TREE.cdb');
+        $manager = new ModuleManager(new Settings($mount, 'TREE'), new NullLogger(), 0);
+        self::assertSame('one', $manager->module()->getString('/k'));
+
+        mkdir($mount . '/..2026_two', 0o700);
+        CdbWriter::write($mount . '/..2026_two/TREE.cdb', ['/k' => 'stwo']);
+        symlink('..2026_two', $mount . '/..data_tmp');
+        rename($mount . '/..data_tmp', $mount . '/..data');
+        unlink($mount . '/..2026_one/TREE.cdb');
+        rmdir($mount . '/..2026_one');
+
+        self::assertSame('two', $manager->module()->getString('/k'), 'the module follows the symlink, not the old real path');
+    }
 }

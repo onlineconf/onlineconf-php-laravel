@@ -37,11 +37,14 @@
   opened by the next call.
 - `ConfigOverride::install()` uses the module manager already in the container, so a fake set before the
   install is kept.
-- The immediate reads take `ONLINECONF_DIR`, `ONLINECONF_REQUIRED` and the other client variables as `env()`
-  does — `$_SERVER`, `$_ENV`, then `getenv()` — so they agree with `onlineconf.*` when putenv() is off. A
-  configured `onlineconf.required` wins over the process variable, as a cached configuration does over `.env`.
-- The module manager keeps one module per configured file name, so an optional module opened before its file
-  existed stays the same module when the file appears behind a symlinked directory.
+- The immediate reads and the module manager take `ONLINECONF_DIR`, `ONLINECONF_REQUIRED` and the other client
+  variables as `env()` does — `$_SERVER`, `$_ENV`, then `getenv()` — so they agree with `onlineconf.*` when
+  putenv() is off. Since `$_SERVER` comes first, a later `putenv()` in a CLI process no longer changes how they
+  resolve. A configured `onlineconf.required` wins over the process variable, as a cached configuration does
+  over `.env`.
+- The module manager keeps one module per configured file name and opens it by that path, so an optional
+  module opened before its file existed stays the same module when the file appears behind a symlinked
+  directory, and a configMap update — `..data` retargeted, the old directory deleted — is reloaded.
 
 ## 1.3.2 — 2026-09-28
 

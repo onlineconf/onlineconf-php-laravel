@@ -17,7 +17,7 @@ use Psr\Log\LoggerInterface;
  */
 final class ModuleManager
 {
-    /** @var array<string, Module> modules by resolved file path, so two names of one file share a module */
+    /** @var array<string, Module> modules by resolved file path at first open, so two names of one file share one */
     private array $modules = [];
 
     /**
@@ -49,9 +49,10 @@ final class ModuleManager
         if (isset($this->named[$file])) {
             return $this->named[$file];
         }
-        $key = $this->key($file);
-
-        return $this->named[$file] = $this->modules[$key] ??= Module::fromFile($key, $this->settings->required, $this->logger, $this->checkInterval);
+        // Opened by the configured path, so every update check stat()s through the symlinks: a configMap swap
+        // retargets "..data" and deletes the old directory, and the real path of the old file would never change
+        // again. The real path only tells two names of one file apart.
+        return $this->named[$file] = $this->modules[$this->key($file)] ??= Module::fromFile($file, $this->settings->required, $this->logger, $this->checkInterval);
     }
 
     public function settings(): Settings
