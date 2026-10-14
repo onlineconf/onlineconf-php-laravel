@@ -35,7 +35,10 @@ final class GetCommand extends Command
             $module = $manager->module(is_string($moduleName) && $moduleName !== '' ? $moduleName : null);
             $this->output->writeln($this->render($module, $path));
         } catch (NotFoundException) {
-            return $this->reportError("No such key: {$path}", self::EXIT_NOT_FOUND);
+            // A disabled client has no keys at all: say why rather than leave a key that is in the file a mystery
+            $reason = $module->version() === 'disabled' ? ': OnlineConf is disabled (ONLINECONF_ENABLED=false)' : '';
+
+            return $this->reportError("No such key: {$path}{$reason}", self::EXIT_NOT_FOUND);
         } catch (OnlineconfException $e) {
             return $this->reportError($e->getMessage(), self::EXIT_ERROR);
         } catch (\JsonException $e) {

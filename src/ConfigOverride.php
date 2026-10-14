@@ -48,7 +48,8 @@ final class ConfigOverride
      * derived and wrote to "onlineconf.map". A configuration with neither is left alone. A second call on
      * the same configuration changes nothing — neither the repository nor the registry of immediate reads —
      * unless the first one failed: whatever throws — a transform on its fallback, the module manager, the
-     * logger — aborts the install, and the next call tries again.
+     * module file — aborts the install, and the next call tries again. The logger does not: it is built at its
+     * first record ({@see LazyLogger}).
      */
     public static function install(ApplicationContract $app): void
     {

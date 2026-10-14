@@ -26,6 +26,7 @@ abstract class TestCase extends TestbenchTestCase
     protected function tearDown(): void
     {
         self::setRequired(null);
+        self::setEnabled(null);
         if ($this->tempDir !== null) {
             self::removeDir($this->tempDir);
             $this->tempDir = null;
@@ -40,15 +41,28 @@ abstract class TestCase extends TestbenchTestCase
      */
     protected static function setRequired(?string $value): void
     {
+        self::setVariable('ONLINECONF_REQUIRED', $value);
+    }
+
+    /**
+     * ONLINECONF_ENABLED for this test, set as {@see setRequired()} sets its variable; null unsets it.
+     */
+    protected static function setEnabled(?string $value): void
+    {
+        self::setVariable('ONLINECONF_ENABLED', $value);
+    }
+
+    private static function setVariable(string $name, ?string $value): void
+    {
         if ($value === null) {
-            putenv('ONLINECONF_REQUIRED');
-            unset($_ENV['ONLINECONF_REQUIRED'], $_SERVER['ONLINECONF_REQUIRED']);
+            putenv($name);
+            unset($_ENV[$name], $_SERVER[$name]);
 
             return;
         }
-        putenv('ONLINECONF_REQUIRED=' . $value);
-        $_ENV['ONLINECONF_REQUIRED'] = $value;
-        $_SERVER['ONLINECONF_REQUIRED'] = $value;
+        putenv($name . '=' . $value);
+        $_ENV[$name] = $value;
+        $_SERVER[$name] = $value;
     }
 
     /**
@@ -58,6 +72,15 @@ abstract class TestCase extends TestbenchTestCase
     {
         self::setRequired('false');
         $this->config()->set('onlineconf.required', 'false');
+    }
+
+    /**
+     * The client is disabled for this test, before boot and after it.
+     */
+    protected function disabledClient(): void
+    {
+        self::setEnabled('false');
+        $this->config()->set('onlineconf.enabled', 'false');
     }
 
     private static function removeDir(string $dir): void

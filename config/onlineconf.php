@@ -21,6 +21,15 @@ return [
     // and without "false" here, or every process booting from the cache is tolerant.
     'required' => env('ONLINECONF_REQUIRED'),
 
+    // Whether the client reads module files at all. Unset (null): ONLINECONF_ENABLED from the process
+    // environment, and enabled when that is unset too. "false" or "0": disabled — for hosts without OnlineConf
+    // (a developer machine, CI, an image build): no file is opened, not even the client config, config() gives
+    // the values from config/*.php, get* their defaults, and "required" does not matter. Like "required", the
+    // immediate reads read ONLINECONF_ENABLED directly. config:cache freezes this value and it wins over the
+    // process environment: a cache written with "false" switches the client off wherever it is loaded,
+    // production included — never cache with the client off.
+    'enabled' => env('ONLINECONF_ENABLED'),
+
     // Seconds between stat() checks for updates; 0 checks on every access.
     'check_interval' => env('ONLINECONF_CHECK_INTERVAL', 5),
 

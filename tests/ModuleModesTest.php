@@ -56,6 +56,8 @@ final class ModuleModesTest extends TestCase
             yield "$way, file missing, optional" => [$way, 'file missing, optional', '42', 42];
             yield "$way, empty default, node missing" => [$way, 'node missing', '', null];
             yield "$way, empty default, file missing, optional" => [$way, 'file missing, optional', '', null];
+            yield "$way, client disabled, node present" => [$way, 'client disabled, node present', '42', 42];
+            yield "$way, client disabled, file missing, required" => [$way, 'client disabled, file missing', '42', 42];
         }
     }
 
@@ -67,8 +69,12 @@ final class ModuleModesTest extends TestCase
             'node present' => $this->writeModule(['/p' => 's7']),
             'node missing' => $this->writeModule(['/other' => 'sx']),
             'file missing, optional' => $this->optionalModule(),
+            'client disabled, node present' => $this->writeModule(['/p' => 's7']),
             default => null,
         };
+        if (str_starts_with($state, 'client disabled')) {
+            $this->disabledClient();
+        }
         if ($state === 'file missing, required') {
             $this->expectException(OpenException::class);
             $this->expectExceptionMessage('set ONLINECONF_REQUIRED=false to start without it');

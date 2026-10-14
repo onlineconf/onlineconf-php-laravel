@@ -213,4 +213,21 @@ final class ModuleManagerTest extends TestCase
 
         self::assertSame('two', $manager->module()->getString('/k'), 'the module follows the symlink, not the old real path');
     }
+
+    public function testAFakeReachesADisabledClientWhoseDirectoryIsASymlink(): void
+    {
+        // A configMap's ..data/, or the temporary directory on macOS: the real path of the file is not the
+        // configured one, and a disabled client does not resolve it
+        $this->writeModule(['/app/name' => 'sreal']);
+        $link = $this->tempDir() . '-link';
+        symlink($this->tempDir(), $link);
+        try {
+            $manager = new ModuleManager(new Settings($link, 'TREE', true, false), new NullLogger(), 0);
+            $manager->fake(['/app/name' => 'fake']);
+
+            self::assertSame('fake', $manager->module()->getString('/app/name', 'dflt'));
+        } finally {
+            unlink($link);
+        }
+    }
 }

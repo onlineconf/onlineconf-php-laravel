@@ -59,4 +59,17 @@ final class AboutCommandTest extends TestCase
         self::assertMatchesRegularExpression('/State\s*\.*\s*error/', $output);
         self::assertStringContainsString('ONLINECONF_REQUIRED=false', $output, 'the message says how to start without it');
     }
+
+    public function testADisabledClientIsShownAsSuch(): void
+    {
+        $this->useModule(['/app/name' => 'sdemo']);
+        $this->disabledClient();
+
+        [$code, $output] = $this->about();
+
+        self::assertSame(0, $code);
+        self::assertMatchesRegularExpression('/Mode\s*\.*\s*disabled/', $output);
+        self::assertMatchesRegularExpression('/State\s*\.*\s*disabled, no file is opened/', $output);
+        self::assertMatchesRegularExpression('/Version\s*\.*\s*disabled/', $output);
+    }
 }

@@ -57,6 +57,7 @@ the fallback next to it.
 |---|---|---|---|
 | `dir` | `ONLINECONF_DIR` | `null` | directory with module files; `null` lets the client resolve it |
 | `required` | `ONLINECONF_REQUIRED` | `null` | whether the module file must exist; `null` = the process environment, required when unset; `false`/`0` = optional (see «A missing module file») |
+| `enabled` | `ONLINECONF_ENABLED` | `null` | whether the client reads module files at all; `null` = the process environment, enabled when unset; `false`/`0` = disabled (see «Switching the client off») |
 | `module` | `ONLINECONF_MODULE` | `null` | default module: a name (`TREE`) or a file path; `null` = client default |
 | `check_interval` | `ONLINECONF_CHECK_INTERVAL` | `5` | seconds between `stat()` checks for updates, `0` = every access |
 | `log_channel` | `ONLINECONF_LOG_CHANNEL` | `null` | log channel for the client's warnings; `null` = default logger |
@@ -69,9 +70,9 @@ and `CDB_CONFIG_FILE` from the **process environment**, then `/usr/local/etc/onl
 over the environment. `config:cache` is safe: `env()` is read only inside the config file.
 
 The **immediate reads** of the next section run before `config/onlineconf.php` is loaded and read
-`ONLINECONF_DIR`, `ONLINECONF_CONFIG`, `CDB_CONFIG_FILE` and `ONLINECONF_REQUIRED` as `env()` sees them —
-`$_SERVER`, `$_ENV`, then `getenv()` — so an application with `Env::disablePutenv()` (Testbench does it) gets
-the same values on both paths. A `config:cache`d process does not read `.env` at all and runs no config file;
+`ONLINECONF_DIR`, `ONLINECONF_CONFIG`, `CDB_CONFIG_FILE`, `ONLINECONF_REQUIRED` and `ONLINECONF_ENABLED` as
+`env()` sees them — `$_SERVER`, `$_ENV`, then `getenv()` — so an application with `Env::disablePutenv()`
+(Testbench does it) gets the same values on both paths. A `config:cache`d process does not read `.env` at all and runs no config file;
 there only the cached `onlineconf.*` keys count.
 
 The manager snapshots `dir`, `module`, `check_interval` and `log_channel` when it is first resolved (the first
@@ -169,22 +170,38 @@ process environment, and by this package from `onlineconf.required` (`env('ONLIN
   production included. It also holds the values the immediate reads returned while caching: written without
   the module, they are the defaults for good. Never cache with the tolerant mode or without the module; mount
   the module where `config:cache` runs.
-- **Tolerant** is for development machines, CI and test suites, which have no OnlineConf at all: put
-  `ONLINECONF_REQUIRED=false` in `.env`, `.env.testing` or `phpunit.xml`. Everything then goes through the
-  client's getters on an empty module, so a missing file and a missing node look the same — the defaults —
-  and the types are the same as with a file. The module looks for its file again on every update check
-  (`check_interval`) and serves it once it appears, without a restart.
-- `Onlineconf::fake()` needs no module file in either mode.
+- **Tolerant** is for hosts that may get the module later — a developer machine with a local copy of the tree
+  that is not always there. Everything then goes through the client's getters on an empty module, so a missing
+  file and a missing node look the same — the defaults — and the types are the same as with a file. The module
+  looks for its file again on every update check (`check_interval`) and serves it once it appears, without a
+  restart. Hosts with no OnlineConf at all switch the client off instead (next section).
+- `Onlineconf::fake()` needs no module file in any mode, the disabled client included.
 - A file that is not there raises no PHP warning, not even a suppressed one, so test runners that report
   those (Collision) stay quiet.
 
+### Switching the client off
+
+Development machines, CI, image builds and test suites that have no OnlineConf at all set
+`ONLINECONF_ENABLED=false` (`false` in any case or `0`; unset, empty or anything else keep the client on) — in
+`.env`, `.env.testing` or `phpunit.xml`; this package reads it from `onlineconf.enabled`
+(`env('ONLINECONF_ENABLED')`) as well. The client then touches no file: neither the module file nor the client
+config `/usr/local/etc/onlineconf.yaml`, so nothing about them is logged either. The module is empty —
+`config()` gives the values from `config/*.php`, `get*` their defaults, `require*` and `requireRef*()` markers
+throw `NotFoundException` saying the client is disabled, so does `onlineconf:get` — and `about` shows
+`disabled`. `ONLINECONF_REQUIRED` does not matter then.
+
+**A cache written with the client off switches it off for every process that boots from it, production
+included**: `config:cache` freezes `onlineconf.enabled`, and a cached configuration wins over the process
+environment. Never run `config:cache` with `ONLINECONF_ENABLED=false` — not in an image build that switches the
+client off for its other steps either; cache where the pod runs, with the module mounted.
+
 ## Testing your application
 
-A test suite without OnlineConf needs the tolerant mode, or the application does not boot:
+A test suite without OnlineConf switches the client off, or the application does not boot:
 
 ```xml
-<!-- phpunit.xml -->
-<env name="ONLINECONF_REQUIRED" value="false"/>
+<!-- phpunit.xml; verbatim: without it PHPUnit turns "false" into false, which reaches the environment as "" -->
+<env name="ONLINECONF_ENABLED" value="false" force="true" verbatim="true"/>
 ```
 
 ```php
@@ -474,13 +491,14 @@ the config files did not run — their values came from the cache.
 A node OnlineConf does not have is not an error and is not reported anywhere: the value in `config/*.php` —
 usually `env(...)` — **is** the default, and the tree holds only what must differ from that default or change
 without a deploy. A tree that answers nothing is a correct tree for an application that is happy with its
-defaults — and a developer machine with no module file at all works once it says `ONLINECONF_REQUIRED=false`.
+defaults — and a developer machine with no OnlineConf at all works once it says `ONLINECONF_ENABLED=false`.
 
 What does get said out loud:
 
 - a value that does not parse as the declared type — `warning`, in the client's own wording;
 - a value that is not the JSON it claims to be — `error`;
-- no module file in strict mode — the client's `OpenException`, at boot; in tolerant mode, nothing;
+- no module file in strict mode — the client's `OpenException`, at boot; in tolerant mode or with the client
+  off, nothing;
 - a default or a fallback that does not read as its type — `InvalidDefaultException`, at the call or at boot;
 - a node a `requireRef*()` marker declares and OnlineConf does not have — the client's `NotFoundException`,
   thrown at the `config()` call, because that node was declared as one that must exist.
