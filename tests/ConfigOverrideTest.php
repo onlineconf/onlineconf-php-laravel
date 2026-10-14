@@ -21,8 +21,6 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 use Onlineconf\Laravel\ModuleManager;
 use Onlineconf\Laravel\Ref;
 use Onlineconf\Laravel\Tests\Support\Csv;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -434,26 +432,18 @@ final class ConfigOverrideTest extends TestCase
 
     public function testAnInstallThatFailsAfterTheDeriveIsRetried(): void
     {
-        $this->useModule(['/app/name' => 'sFrom OnlineConf']);
+        // The required module file is not there yet: the install fails when it opens the module, after the derive
+        $this->config()->set('onlineconf.dir', $this->tempDir());
         $this->config()->set('app.name', Onlineconf::getRefString('/app/name', 'From config'));
         EagerReads::record('/app/eager', Ref::TYPE_STRING, 'dflt');
-        $logger = new \stdClass();
-        $logger->broken = true;
-        $this->application()->bind(LoggerInterface::class, static function () use ($logger): LoggerInterface {
-            if ($logger->broken === true) {
-                throw new \RuntimeException('no logger yet');
-            }
-
-            return new NullLogger();
-        });
 
         try {
             ConfigOverride::install($this->application());
-            self::fail('the logger cannot be resolved');
-        } catch (\RuntimeException $e) {
-            self::assertSame('no logger yet', $e->getMessage());
+            self::fail('the required module file is not there');
+        } catch (OpenException $e) {
+            self::assertStringContainsString('set ONLINECONF_REQUIRED=false', $e->getMessage());
         }
-        $logger->broken = false;
+        $this->writeModule(['/app/name' => 'sFrom OnlineConf']);
 
         ConfigOverride::install($this->application());
 

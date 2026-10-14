@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.4.1 — 2026-10-14
+
+### Fixed
+
+- Hosts without OnlineConf — developer machines, CI, image builds, test suites — switch the client off with
+  `ONLINECONF_ENABLED=false` (or `0`), read from the process environment by the immediate reads and from
+  `onlineconf.enabled` (`env('ONLINECONF_ENABLED')`) by the rest; unset, empty or anything else keep it on. No
+  file is touched then — not the module file, not the client config — so the debug line about an unreadable
+  `/usr/local/etc/onlineconf.yaml` no longer reaches the log at every boot. `config()` gives the values from
+  `config/*.php`, `get*` their defaults, `requireRef*()` markers and `require*` throw `NotFoundException`
+  saying the client is disabled; `ONLINECONF_REQUIRED` does not matter. `php artisan about` shows `disabled`.
+  Requires `onlineconf/onlineconf` 1.3.1.
+- The log channel is built at its first record, not while the configuration loads. Built then — before the
+  facades and providers — an application's channel could fail to build, and Laravel fell back to its emergency
+  logger: a line in `storage/logs/laravel.log` at every boot, and the client's warnings in that file instead of
+  the configured channel. A disabled client builds no channel at all. `ConfigOverride::install()` no longer
+  fails on a logger that cannot be resolved yet.
+- `onlineconf:get` and `onlineconf-get` say a key is missing because the client is disabled; `Onlineconf::fake()`
+  reaches a disabled client whose directory is a symlink; `onlineconf.enabled` and `onlineconf.required` take
+  an integer `0` as off.
+- The README's `phpunit.xml` example lost its value: without `verbatim="true"` PHPUnit turns `"false"` into
+  `false`, which reaches the environment as an empty string, and an empty `ONLINECONF_REQUIRED` keeps the module
+  required. The example now switches the client off, with `verbatim="true"`.
+
 ## 1.4.0 — 2026-10-05
 
 ### Breaking

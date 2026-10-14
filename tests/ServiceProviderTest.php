@@ -27,7 +27,7 @@ final class ServiceProviderTest extends TestCase
     public function testConfigDefaultsAreMerged(): void
     {
         self::assertSame(
-            ['dir' => null, 'module' => null, 'required' => null, 'check_interval' => 5, 'log_channel' => null],
+            ['dir' => null, 'module' => null, 'required' => null, 'enabled' => null, 'check_interval' => 5, 'log_channel' => null],
             $this->config()->get('onlineconf'),
         );
     }

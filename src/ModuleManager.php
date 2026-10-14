@@ -37,9 +37,10 @@ final class ModuleManager
     /**
      * The default module for null, otherwise a module by name ("TREE" → "<dir>/TREE.cdb") or by file path.
      *
-     * Opened by the client's {@see Module::fromFile()}: a required module file must be there, or an
+     * Opened by the client's {@see Module::fromSettings()}: a required module file must be there, or an
      * {@see OpenException} says how to make it optional (ONLINECONF_REQUIRED=false); an optional one that is not
-     * there is an empty module that opens the file once it appears.
+     * there is an empty module that opens the file once it appears; a disabled client (ONLINECONF_ENABLED=false)
+     * is an empty module that touches no file.
      *
      * @throws OpenException when a required file is not there, or the file cannot be opened as CDB
      */
@@ -52,7 +53,7 @@ final class ModuleManager
         // Opened by the configured path, so every update check stat()s through the symlinks: a configMap swap
         // retargets "..data" and deletes the old directory, and the real path of the old file would never change
         // again. The real path only tells two names of one file apart.
-        return $this->named[$file] = $this->modules[$this->key($file)] ??= Module::fromFile($file, $this->settings->required, $this->logger, $this->checkInterval);
+        return $this->named[$file] = $this->modules[$this->key($file)] ??= Module::fromSettings($this->settings, $file, $this->logger, $this->checkInterval);
     }
 
     public function settings(): Settings
@@ -77,10 +78,15 @@ final class ModuleManager
     }
 
     /**
-     * Registry key: the real path of the module file, or the unresolved name when the file does not exist.
+     * Registry key: the real path of the module file, or the unresolved name when the file does not exist or the
+     * client is disabled — it touches no file, not even to resolve its real path, and a fake keyed here is the
+     * module module() then finds.
      */
     private function key(string $file): string
     {
+        if (!$this->settings->enabled) {
+            return $file;
+        }
         $key = realpath($file);
 
         return $key === false ? $file : $key;

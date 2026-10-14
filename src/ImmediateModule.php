@@ -16,15 +16,16 @@ use Psr\Log\NullLogger;
  * defaults), not from the config file.
  *
  * ONLINECONF_REQUIRED comes from there too: a required module file that is not there fails the boot at the
- * first read; an optional one gives get* their defaults until the file appears.
+ * first read; an optional one gives get* their defaults until the file appears. So does ONLINECONF_ENABLED: a
+ * disabled client opens no file at all, and get* give their defaults.
  */
 final class ImmediateModule
 {
     private static ?Module $module = null;
 
     /**
-     * The module of this process, opened once with the client's {@see Module::fromFile()}: required or optional
-     * as ONLINECONF_REQUIRED in the process environment says.
+     * The module of this process, opened once with the client's {@see Module::fromSettings()}: required or
+     * optional as ONLINECONF_REQUIRED in the process environment says, or empty when ONLINECONF_ENABLED is off.
      *
      * @throws OpenException when a required module file is not there, or cannot be opened
      */
@@ -46,6 +47,6 @@ final class ImmediateModule
         $logger = new NullLogger();
         $settings = Settings::resolve(ProcessEnvironment::variables(), null, null, $logger);
 
-        return Module::fromFile($settings->fileName($settings->module), $settings->required, $logger, Module::DEFAULT_CHECK_INTERVAL);
+        return Module::fromSettings($settings, null, $logger, Module::DEFAULT_CHECK_INTERVAL);
     }
 }

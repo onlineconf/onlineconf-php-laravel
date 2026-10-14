@@ -261,4 +261,13 @@ final class ImmediateModeTest extends TestCase
             unset($_ENV['ONLINECONF_DIR'], $_SERVER['ONLINECONF_DIR']);
         }
     }
+
+    public function testTheClientIsSwitchedOffAsEnvSeesItWithPutenvOff(): void
+    {
+        $this->beforeProviders();
+        $_ENV['ONLINECONF_ENABLED'] = $_SERVER['ONLINECONF_ENABLED'] = 'false';
+        self::assertFalse(getenv('ONLINECONF_ENABLED'));
+
+        self::assertSame('dflt', Onlineconf::getString('/app/name', 'dflt'), 'the file is there, but not opened');
+    }
 }

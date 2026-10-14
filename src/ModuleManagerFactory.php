@@ -22,15 +22,21 @@ final class ModuleManagerFactory
         $config = $app->make(Repository::class);
         assert($config instanceof Repository);
         $logger = self::logger($app, $config->get('onlineconf.log_channel'));
+        $env = ProcessEnvironment::variables();
+        // Decided before the settings resolve: a disabled client reads no client config file either
+        $enabled = self::switchedOn($config->get('onlineconf.enabled'));
+        if ($enabled !== null) {
+            $env['ONLINECONF_ENABLED'] = $enabled ? 'true' : 'false';
+        }
         $settings = Settings::resolve(
-            ProcessEnvironment::variables(),
+            $env,
             self::stringOrNull($config->get('onlineconf.dir')),
             self::stringOrNull($config->get('onlineconf.module')),
             $logger,
         );
-        $required = self::required($config->get('onlineconf.required'));
+        $required = self::switchedOn($config->get('onlineconf.required'));
         if ($required !== null) {
-            $settings = new Settings($settings->dir, $settings->module, $required);
+            $settings = new Settings($settings->dir, $settings->module, $required, $settings->enabled);
         }
         $interval = $config->get('onlineconf.check_interval', Module::DEFAULT_CHECK_INTERVAL);
 
@@ -38,9 +44,15 @@ final class ModuleManagerFactory
     }
 
     /**
-     * The configured log channel, or the application's default logger.
+     * The configured log channel, or the application's default logger, resolved at the first record
+     * ({@see LazyLogger}): taken while the configuration loads, it is mostly used long after.
      */
     public static function logger(Application $app, mixed $channel): LoggerInterface
+    {
+        return new LazyLogger(static fn (): LoggerInterface => self::channel($app, $channel));
+    }
+
+    private static function channel(Application $app, mixed $channel): LoggerInterface
     {
         if (is_string($channel) && $channel !== '') {
             $logManager = $app->make(LogManager::class);
@@ -56,18 +68,18 @@ final class ModuleManagerFactory
     }
 
     /**
-     * "onlineconf.required" — env('ONLINECONF_REQUIRED'), which a config:cache'd process keeps — read as the
-     * client reads the variable: only false/"false"/"0" make the module optional; null or an empty value leave
-     * the decision to the process environment. A configured value wins over the variable, as a cached
-     * configuration wins over .env.
+     * "onlineconf.required" and "onlineconf.enabled" — env('ONLINECONF_REQUIRED') and env('ONLINECONF_ENABLED'),
+     * which a config:cache'd process keeps — read as the client reads the variables: only false/"false"/"0"
+     * switch them off; null or an empty value leave the decision to the process environment. A configured value
+     * wins over the variable, as a cached configuration wins over .env.
      */
-    private static function required(mixed $value): ?bool
+    private static function switchedOn(mixed $value): ?bool
     {
         if ($value === null || $value === '') {
             return null;
         }
 
-        return !($value === false || (is_string($value) && in_array(strtolower($value), ['false', '0'], true)));
+        return !($value === false || $value === 0 || (is_string($value) && in_array(strtolower($value), ['false', '0'], true)));
     }
 
     /**

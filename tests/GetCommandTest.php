@@ -127,4 +127,15 @@ final class GetCommandTest extends TestCase
 
         self::assertSame([0, 'other'], $this->runCommand(['path' => '/app/name', '--module' => 'other']));
     }
+
+    public function testADisabledClientSaysWhyTheKeyIsNotThere(): void
+    {
+        $this->useModule(self::MODULE);
+        $this->disabledClient();
+
+        [$code, $output] = $this->runCommand(['path' => '/app/name']);
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('OnlineConf is disabled (ONLINECONF_ENABLED=false)', $output);
+    }
 }
