@@ -24,6 +24,11 @@ function facadeGetters(?string $maybe): void
     assertType('float', Onlineconf::getDuration('/p', '1m'));
     assertType('int', Onlineconf::getDurationMs('/p', '1s'));
     assertType('list<string>', Onlineconf::getStrings('/p', 'a,b'));
+    assertType('list<int>', Onlineconf::getInts('/p', '80,443'));
+    assertType('list<int>', Onlineconf::getInts('/p', [80, 443]));
+    assertType('list<int>|null', Onlineconf::getInts('/p'));
+    assertType('list<int>|null', Onlineconf::getInts('/p', $maybe));
+    assertType('list<int>', Onlineconf::requireInts('/p'));
     assertType('array<mixed>', Onlineconf::getArray('/p', '{"a":1}'));
     assertType('string', Onlineconf::getString('/p', 'd'));
     assertType('string|null', Onlineconf::getString('/p'));

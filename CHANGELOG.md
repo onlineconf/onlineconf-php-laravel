@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.0 — unreleased
+
+### Added
+
+- Lists of integers, the counterpart of the `strings` type: `Onlineconf::getInts()` and `requireInts()` on the
+  facade (immediate reads included), and the `ints` marker type — `getRefInts($path, $fallback)` and
+  `requireRefInts($path)`. The node is a comma-separated value (`80, 443`) or a JSON array; an element is an
+  integer or a string that reads as one, and anything else makes the whole value unreadable: a warning and the
+  default or the fallback, the client's `ParseException` or `FormatException` for `requireInts()` and a
+  required marker. The fallback is an array of integers, a comma-separated string or a JSON array.
+
+### Changed
+
+- Requires `onlineconf/onlineconf` ^1.4.
+
 ## 1.4.1 — 2026-10-14
 
 ### Fixed

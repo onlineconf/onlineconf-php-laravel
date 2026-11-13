@@ -29,6 +29,7 @@ use Onlineconf\Subtree;
  * @method static ($default is int|float|non-empty-string ? float : float|null) getDuration(string $path, float|string|null $default = null)
  * @method static ($default is int|non-empty-string ? int : int|null) getDurationMs(string $path, int|string|null $default = null)
  * @method static ($default is array|non-empty-string ? list<string> : list<string>|null) getStrings(string $path, list<string>|string|null $default = null)
+ * @method static ($default is array|non-empty-string ? list<int> : list<int>|null) getInts(string $path, array<int|string>|string|null $default = null)
  * @method static ($default is array|non-empty-string ? array<mixed> : array<mixed>|null) getArray(string $path, array<mixed>|string|null $default = null)
  * @method static mixed         get(string $path, mixed $default)
  * @method static mixed         require(string $path)
@@ -39,6 +40,7 @@ use Onlineconf\Subtree;
  * @method static float         requireDuration(string $path)
  * @method static int           requireDurationMs(string $path)
  * @method static list<string>  requireStrings(string $path)
+ * @method static list<int>     requireInts(string $path)
  * @method static array<mixed>  requireArray(string $path)
  * @method static Subtree       subtree(string $prefix)
  * @method static list<string>  children(string $path)
@@ -65,6 +67,7 @@ final class Onlineconf extends Facade
         'getDuration' => Ref::TYPE_DURATION,
         'getDurationMs' => Ref::TYPE_DURATION_MS,
         'getStrings' => Ref::TYPE_STRINGS,
+        'getInts' => Ref::TYPE_INTS,
         'getArray' => Ref::TYPE_ARRAY,
         'require' => Ref::TYPE_RAW,
         'requireString' => Ref::TYPE_STRING,
@@ -74,6 +77,7 @@ final class Onlineconf extends Facade
         'requireDuration' => Ref::TYPE_DURATION,
         'requireDurationMs' => Ref::TYPE_DURATION_MS,
         'requireStrings' => Ref::TYPE_STRINGS,
+        'requireInts' => Ref::TYPE_INTS,
         'requireArray' => Ref::TYPE_ARRAY,
     ];
 
@@ -212,6 +216,18 @@ final class Onlineconf extends Facade
     }
 
     /**
+     * A marker for config/*.php read with the client's getInts() on every config() call.
+     * The node is a comma-separated value or a JSON array, of integers or of strings that read as one.
+     * The fallback is what config() returns while OnlineConf has no such node.
+     *
+     * @param array<int|string>|string|null $fallback
+     */
+    public static function getRefInts(string $path, array|string|null $fallback, ?callable $transform = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_INTS, $fallback, false, Transform::encode($path, $transform));
+    }
+
+    /**
      * A marker for config/*.php read with the client's getArray() on every config() call.
      * The node is a JSON value.
      * The fallback is what config() returns while OnlineConf has no such node.
@@ -287,6 +303,14 @@ final class Onlineconf extends Facade
     public static function requireRefStrings(string $path, ?callable $transform = null): Ref
     {
         return new Ref($path, Ref::TYPE_STRINGS, null, true, Transform::encode($path, $transform));
+    }
+
+    /**
+     * A marker read with the client's requireInts(): the node must exist, or config() throws.
+     */
+    public static function requireRefInts(string $path, ?callable $transform = null): Ref
+    {
+        return new Ref($path, Ref::TYPE_INTS, null, true, Transform::encode($path, $transform));
     }
 
     /**

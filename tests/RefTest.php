@@ -22,6 +22,7 @@ final class RefTest extends PHPUnitTestCase
         self::assertRef(Onlineconf::getRefDuration('/a/dur', 30.0), '/a/dur', Ref::TYPE_DURATION, 30.0);
         self::assertRef(Onlineconf::getRefDurationMs('/a/ms', 5000), '/a/ms', Ref::TYPE_DURATION_MS, 5000);
         self::assertRef(Onlineconf::getRefStrings('/a/list', ['a', 'b']), '/a/list', Ref::TYPE_STRINGS, ['a', 'b']);
+        self::assertRef(Onlineconf::getRefInts('/a/ports', [80, 443]), '/a/ports', Ref::TYPE_INTS, [80, 443]);
         self::assertRef(Onlineconf::getRefArray('/a/opts', ['pool' => 5]), '/a/opts', Ref::TYPE_ARRAY, ['pool' => 5]);
         self::assertRef(Onlineconf::getRef('/a/raw', 'x'), '/a/raw', Ref::TYPE_RAW, 'x');
     }
@@ -36,6 +37,7 @@ final class RefTest extends PHPUnitTestCase
             Ref::TYPE_DURATION => Onlineconf::requireRefDuration('/a'),
             Ref::TYPE_DURATION_MS => Onlineconf::requireRefDurationMs('/a'),
             Ref::TYPE_STRINGS => Onlineconf::requireRefStrings('/a'),
+            Ref::TYPE_INTS => Onlineconf::requireRefInts('/a'),
             Ref::TYPE_ARRAY => Onlineconf::requireRefArray('/a'),
             Ref::TYPE_RAW => Onlineconf::requireRef('/a'),
         ];
@@ -59,6 +61,7 @@ final class RefTest extends PHPUnitTestCase
                 Onlineconf::getRefDuration('/a', null),
                 Onlineconf::getRefDurationMs('/a', null),
                 Onlineconf::getRefStrings('/a', null),
+                Onlineconf::getRefInts('/a', null),
                 Onlineconf::getRefArray('/a', null),
                 Onlineconf::getRef('/a', null),
             ] as $ref
@@ -121,6 +124,7 @@ final class RefTest extends PHPUnitTestCase
             Onlineconf::getRefDuration('/a', 1.0, 'strtoupper'),
             Onlineconf::getRefDurationMs('/a', 1, 'strtoupper'),
             Onlineconf::getRefStrings('/a', [], 'strtoupper'),
+            Onlineconf::getRefInts('/a', [], 'strtoupper'),
             Onlineconf::getRefArray('/a', [], 'strtoupper'),
             Onlineconf::getRef('/a', null, 'strtoupper'),
             Onlineconf::requireRefString('/a', 'strtoupper'),
@@ -130,6 +134,7 @@ final class RefTest extends PHPUnitTestCase
             Onlineconf::requireRefDuration('/a', 'strtoupper'),
             Onlineconf::requireRefDurationMs('/a', 'strtoupper'),
             Onlineconf::requireRefStrings('/a', 'strtoupper'),
+            Onlineconf::requireRefInts('/a', 'strtoupper'),
             Onlineconf::requireRefArray('/a', 'strtoupper'),
             Onlineconf::requireRef('/a', 'strtoupper'),
         ];
@@ -175,6 +180,7 @@ final class RefTest extends PHPUnitTestCase
             Ref::TYPE_DURATION => Type::Duration,
             Ref::TYPE_DURATION_MS => Type::DurationMs,
             Ref::TYPE_STRINGS => Type::Strings,
+            Ref::TYPE_INTS => Type::Ints,
             Ref::TYPE_ARRAY => Type::Array,
             Ref::TYPE_RAW => Type::Mixed,
         ];

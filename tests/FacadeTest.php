@@ -22,8 +22,11 @@ final class FacadeTest extends TestCase
             '/app/port' => 's8080',
             '/app/timeout' => 's1.5s',
             '/app/opts' => 'j{"pool":5}',
+            '/app/ports' => 's80, 443',
         ]);
 
+        self::assertSame([80, 443], Onlineconf::getInts('/app/ports', []));
+        self::assertSame([80, 443], Onlineconf::requireInts('/app/ports'));
         self::assertSame('demo', Onlineconf::getString('/app/name', ''));
         self::assertSame(8080, Onlineconf::getInt('/app/port', 0));
         self::assertSame(1500, Onlineconf::getDurationMs('/app/timeout', 0));
@@ -102,6 +105,7 @@ final class FacadeTest extends TestCase
         self::assertSame(3306, Onlineconf::getInt('/x', '3306'), 'a string default is read as an int');
         self::assertNull(Onlineconf::getInt('/x', ''), 'an empty variable is not set');
         self::assertSame(['a'], Onlineconf::getStrings('/x', ['a']));
+        self::assertSame([80, 443], Onlineconf::getInts('/x', '80,443'), 'a string default is read as a list of ints');
         self::assertSame(['k' => 1], Onlineconf::getArray('/x', ['k' => 1]));
         self::assertSame('raw', Onlineconf::get('/x', 'raw'));
         self::assertSame(3, Onlineconf::getInt('/x', 3));

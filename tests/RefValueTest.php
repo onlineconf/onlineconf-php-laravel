@@ -241,6 +241,7 @@ final class RefValueTest extends TestCase
             'duration' => [Ref::TYPE_DURATION, 's1m', 1.0, 60.0],
             'duration_ms' => [Ref::TYPE_DURATION_MS, 's1.5s', 1, 1500],
             'strings' => [Ref::TYPE_STRINGS, 'sa, b', ['x'], ['a', 'b']],
+            'ints' => [Ref::TYPE_INTS, 's80, 443', [1], [80, 443]],
             'array' => [Ref::TYPE_ARRAY, 'j{"pool":5}', [], ['pool' => 5]],
             'raw' => [Ref::TYPE_RAW, 'stext', 'dflt', 'text'],
         ];
