@@ -167,7 +167,7 @@ final class FacadeTest extends TestCase
 
     public function testANullDefaultWithAModuleAndNoNodeIsNull(): void
     {
-        // DA: Onlineconf::getString('/da/...', env('X')) with X unset, on a pod that has its module.
+        // Onlineconf::getString('/my/service/...', env('X')) with X unset, on a host that has its module.
         $this->useModule(['/other' => 'sx']);
 
         self::assertNull(Onlineconf::getString('/p', null));
