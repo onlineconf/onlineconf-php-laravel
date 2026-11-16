@@ -31,6 +31,7 @@ final class Ref
     public const TYPE_DURATION = 'duration';
     public const TYPE_DURATION_MS = 'duration_ms';
     public const TYPE_STRINGS = 'strings';
+    public const TYPE_INTS = 'ints';
     public const TYPE_ARRAY = 'array';
     public const TYPE_RAW = 'raw';
 
@@ -43,6 +44,7 @@ final class Ref
         self::TYPE_DURATION,
         self::TYPE_DURATION_MS,
         self::TYPE_STRINGS,
+        self::TYPE_INTS,
         self::TYPE_ARRAY,
         self::TYPE_RAW,
     ];
@@ -105,6 +107,7 @@ final class Ref
             self::TYPE_DURATION => Type::Duration,
             self::TYPE_DURATION_MS => Type::DurationMs,
             self::TYPE_STRINGS => Type::Strings,
+            self::TYPE_INTS => Type::Ints,
             self::TYPE_ARRAY => Type::Array,
             default => Type::Mixed,
         };

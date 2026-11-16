@@ -111,6 +111,8 @@ final class OverridingRepositoryTest extends PHPUnitTestCase
             'duration' => [Ref::TYPE_DURATION, '1m', 1.0, 60.0],
             'duration_ms' => [Ref::TYPE_DURATION_MS, '1.5s', 1, 1500],
             'strings' => [Ref::TYPE_STRINGS, 'a, b', ['x'], ['a', 'b']],
+            'ints' => [Ref::TYPE_INTS, '80, 443', [1], [80, 443]],
+            'ints, a JSON array' => [Ref::TYPE_INTS, [80, '443'], [1], [80, 443]],
             'array' => [Ref::TYPE_ARRAY, ['pool' => 5], [], ['pool' => 5]],
             'raw' => [Ref::TYPE_RAW, 'text', null, 'text'],
         ];

@@ -34,6 +34,7 @@ final class MarkerReader
         Ref::TYPE_DURATION => 'Duration',
         Ref::TYPE_DURATION_MS => 'DurationMs',
         Ref::TYPE_STRINGS => 'Strings',
+        Ref::TYPE_INTS => 'Ints',
         Ref::TYPE_ARRAY => 'Array',
         Ref::TYPE_RAW => '',
     ];

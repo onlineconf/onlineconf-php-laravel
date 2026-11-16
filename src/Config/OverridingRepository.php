@@ -247,6 +247,7 @@ final class OverridingRepository extends Repository
             Ref::TYPE_DURATION => $module->getDuration($path) ?? $absent,
             Ref::TYPE_DURATION_MS => $module->getDurationMs($path) ?? $absent,
             Ref::TYPE_STRINGS => $module->getStrings($path) ?? $absent,
+            Ref::TYPE_INTS => $module->getInts($path) ?? $absent,
             Ref::TYPE_ARRAY => $module->getArray($path) ?? $absent,
             default => $module->get($path, $absent),
         };
@@ -267,6 +268,7 @@ final class OverridingRepository extends Repository
             Ref::TYPE_DURATION => $module->requireDuration($path),
             Ref::TYPE_DURATION_MS => $module->requireDurationMs($path),
             Ref::TYPE_STRINGS => $module->requireStrings($path),
+            Ref::TYPE_INTS => $module->requireInts($path),
             Ref::TYPE_ARRAY => $module->requireArray($path),
             default => $module->require($path),
         };

@@ -80,10 +80,12 @@ final class ImmediateModeTest extends TestCase
 
         Onlineconf::getString('/app/name', 'dflt');
         Onlineconf::getInt('/app/gone', 7);
+        Onlineconf::getInts('/app/ports', [80]);
         Onlineconf::name();
 
         $reads = EagerReads::all();
-        self::assertCount(2, $reads, 'only node reads are recorded');
+        self::assertCount(3, $reads, 'only node reads are recorded');
+        self::assertSame(['/app/ports', Ref::TYPE_INTS, [80]], [$reads[2]->path, $reads[2]->type, $reads[2]->default]);
         self::assertSame('/app/name', $reads[0]->path);
         self::assertSame(Ref::TYPE_STRING, $reads[0]->type);
         self::assertSame('dflt', $reads[0]->default);

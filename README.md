@@ -108,6 +108,7 @@ use Onlineconf\Laravel\Facades\Onlineconf;
 Onlineconf::getInt('/my/service/db/port', 3306);
 Onlineconf::getString('/my/service/db/host', env('DB_HOST'));   // a null default is fine: null when absent
 Onlineconf::requireStrings('/my/service/hosts');
+Onlineconf::getInts('/my/service/ports', [80, 443]);     // "80, 443" or [80,443] → list<int>
 Onlineconf::subtree('/my/service')->getBool('/enabled', false);
 Onlineconf::module('other')->getString('/key', '');      // another module: <dir>/other.cdb or a file path
 ```
@@ -122,6 +123,7 @@ env('DB_PORT'))` — with no `(int)` cast that would turn an unset variable into
 | `getFloat`, `getDuration` | a number, a duration in seconds | `"0.5"` → `0.5`, `"1m"` → `60.0` |
 | `getBool` | `"1"` or `"0"` only | `"0"` → `false`, `"true"` is an error |
 | `getStrings` | comma-separated, or a JSON array of strings when it starts with `[` | `"a, b"` → `["a", "b"]` |
+| `getInts` | comma-separated, or a JSON array of integers when it starts with `[` | `"80, 443"` → `[80, 443]` |
 | `getArray` | JSON | `'{"pool":5}'` → `["pool" => 5]` |
 
 `null` and `""` give `null` — an empty variable is an unset one; `getString()` and `get()` take their default
@@ -353,6 +355,7 @@ return [
 | `duration` | `getRefDuration($p, $f)` | `requireRefDuration($p)` | `getDuration()` / `requireDuration()` | `30s`, `1m` → seconds as a float |
 | `duration_ms` | `getRefDurationMs($p, $f)` | `requireRefDurationMs($p)` | `getDurationMs()` / `requireDurationMs()` | the same → milliseconds as an int |
 | `strings` | `getRefStrings($p, $f)` | `requireRefStrings($p)` | `getStrings()` / `requireStrings()` | `a, b` or a JSON array of strings |
+| `ints` | `getRefInts($p, $f)` | `requireRefInts($p)` | `getInts()` / `requireInts()` | `80, 443` or a JSON array of integers |
 | `array` | `getRefArray($p, $f)` | `requireRefArray($p)` | `getArray()` / `requireArray()` | a `j` value decoded to an array |
 | `raw` | `getRef($p, $f)` | `requireRef($p)` | `get()` / `require()` | `s` → string, `j` → decoded JSON |
 

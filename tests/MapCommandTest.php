@@ -79,11 +79,16 @@ final class MapCommandTest extends TestCase
 
         self::assertSame(0, $code);
         self::assertIsArray($decoded);
+        // The map follows the order of the configuration's top-level keys, and testbench loads its config files
+        // in directory order, so the entries are compared by key.
+        $map = $decoded['map'];
+        self::assertIsArray($map);
+        ksort($map);
         self::assertSame([
             'app.name' => ['path' => '/app/name', 'type' => 'string', 'required' => false, 'fallback' => 'From config', 'transform' => false],
             'app.secret' => ['path' => '/app/secret', 'type' => 'string', 'required' => true, 'fallback' => null, 'transform' => false],
             'services.queue.workers' => ['path' => '/app/workers', 'type' => 'int', 'required' => false, 'fallback' => 2, 'transform' => false],
-        ], $decoded['map']);
+        ], $map);
         $eager = $decoded['eager'];
         self::assertIsArray($eager);
         self::assertCount(1, $eager);
