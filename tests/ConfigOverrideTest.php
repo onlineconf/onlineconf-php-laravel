@@ -100,13 +100,18 @@ final class ConfigOverrideTest extends TestCase
         self::assertSame(8, config('services.queue.workers'));
         self::assertSame(60.0, config('services.queue.ttl'));
         self::assertSame('sync', config('services.queue.driver'));
+        // The map follows the order of the configuration's top-level keys, and testbench loads its config files
+        // in directory order, so the entries are compared by key.
+        $map = config('onlineconf.map');
+        self::assertIsArray($map);
+        ksort($map);
         self::assertSame(
             [
                 'app.name' => ['path' => '/app/name', 'type' => Ref::TYPE_STRING, 'required' => false, 'fallback' => 'From config', 'transform' => null],
-                'services.queue.workers' => ['path' => '/app/workers', 'type' => Ref::TYPE_INT, 'required' => false, 'fallback' => 2, 'transform' => null],
                 'services.queue.ttl' => ['path' => '/app/ttl', 'type' => Ref::TYPE_DURATION, 'required' => false, 'fallback' => 5.0, 'transform' => null],
+                'services.queue.workers' => ['path' => '/app/workers', 'type' => Ref::TYPE_INT, 'required' => false, 'fallback' => 2, 'transform' => null],
             ],
-            config('onlineconf.map'),
+            $map,
             'the map is derived from the markers and written back for the tooling',
         );
 
